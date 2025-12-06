@@ -29,6 +29,13 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
+# Version information
+VERSION = "2.0.0"
+VERSION_DATE = "2025-12-06"
+
+# Timeout for subprocess calls (in seconds)
+SUBPROCESS_TIMEOUT = 120
+
 # Check if yt-dlp is installed, if not try to install it
 def check_dependencies():
     yt_dlp_installed = False
@@ -481,9 +488,12 @@ def get_audio_metadata(file_path):
             file_path
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
         if result.returncode == 0:
             return json.loads(result.stdout)
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"Error: FFprobe timed out while analyzing the audio file.")
         return None
     except Exception as e:
         print(f"Error getting audio metadata: {e}")
@@ -612,8 +622,8 @@ def convert_audio_file(input_file, output_format, bitrate=None):
     cmd.extend(['-y', str(output_file)])
     
     try:
-        # Run FFmpeg conversion
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Run FFmpeg conversion with timeout
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
         
         if result.returncode == 0:
             print(f"\nConversion successful!")
@@ -624,14 +634,35 @@ def convert_audio_file(input_file, output_format, bitrate=None):
             print(f"\nConversion failed!")
             print(f"Error: {result.stderr}")
             return False
-            
+    
+    except subprocess.TimeoutExpired:
+        print(f"\nConversion timed out after {SUBPROCESS_TIMEOUT} seconds.")
+        print("The file may be too large or the conversion is taking too long.")
+        return False
     except Exception as e:
         print(f"\nConversion error: {e}")
         return False
 
 # Audio conversion workflow
 def audio_conversion_workflow():
-    """Interactive workflow for audio file conversion"""
+    """
+    Interactive workflow for audio file conversion.
+    
+    This function guides the user through the audio conversion process:
+    1. Prompts for an input audio file path
+    2. Validates the file exists and is accessible
+    3. Extracts and displays file metadata (size, duration, bitrate)
+    4. Presents available output format options
+    5. Allows custom bitrate selection for lossy formats
+    6. Shows estimated output size and quality
+    7. Requests confirmation before conversion
+    8. Performs the conversion using FFmpeg
+    
+    Requires FFmpeg to be installed and available in the system PATH.
+    
+    Returns:
+        None
+    """
     print("\n" + "="*80)
     print("Audio Format Conversion".center(80))
     print("="*80)
@@ -647,9 +678,15 @@ def audio_conversion_workflow():
     print("Supported formats: MP3, M4A, WAV, FLAC, OGG, AAC, WMA")
     input_file = input("File path: ").strip().strip('"').strip("'")
     
-    # Validate input file
+    # Validate input file - basic path traversal protection
+    input_file = os.path.abspath(input_file)
     if not os.path.isfile(input_file):
         print(f"\nError: File '{input_file}' not found.")
+        return
+    
+    # Additional security check - ensure it's a regular file and readable
+    if not os.access(input_file, os.R_OK):
+        print(f"\nError: Cannot read file '{input_file}'. Permission denied.")
         return
     
     # Get file metadata
@@ -902,7 +939,7 @@ def main():
     print("\n" + "="*80)
     print("YouTube Video Downloader & Audio Converter".center(80))
     print("Download YouTube videos and convert audio files".center(80))
-    print(f"Version 2.0.0 - Last updated: 2025-12-06".center(80))
+    print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
     print("="*80)
     
     # Check if dependencies are installed
