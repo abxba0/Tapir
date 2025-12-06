@@ -36,6 +36,9 @@ VERSION_DATE = "2025-12-06"
 # Timeout for subprocess calls (in seconds)
 SUBPROCESS_TIMEOUT = 120
 
+# UI constants
+MENU_RETRY_DELAY = 1  # Seconds to wait before re-displaying menu on invalid input
+
 # Check if yt-dlp is installed, if not try to install it
 def check_dependencies():
     yt_dlp_installed = False
@@ -678,8 +681,13 @@ def audio_conversion_workflow():
     print("Supported formats: MP3, M4A, WAV, FLAC, OGG, AAC, WMA")
     input_file = input("File path: ").strip().strip('"').strip("'")
     
-    # Validate input file - basic path traversal protection
-    input_file = os.path.abspath(input_file)
+    # Validate and normalize input file path
+    try:
+        input_file = os.path.abspath(input_file)
+    except Exception as e:
+        print(f"\nError: Invalid file path. {e}")
+        return
+    
     if not os.path.isfile(input_file):
         print(f"\nError: File '{input_file}' not found.")
         return
@@ -826,8 +834,13 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     # Import yt-dlp
     import yt_dlp
     
+    # Ensure args has default values if None
+    if args is None:
+        args = argparse.Namespace(url=None, mp3=False, mp4=False, high=False, 
+                                  format=None, info=False, output='youtube_downloads')
+    
     # If no URL was provided via command line, ask for it
-    url = args.url if args and args.url else None
+    url = args.url if args.url else None
     if not url:
         url = input("\nEnter YouTube URL: ").strip()
     
@@ -848,25 +861,25 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     display_video_info(info)
     
     # If info-only mode, exit here
-    if args and args.info:
+    if args.info:
         return
     
     # Determine format selection
     format_selection = None
     
-    if args and args.mp3:
+    if args.mp3:
         format_selection = 'mp3'
         if not ffmpeg_installed:
             print("\nWarning: FFmpeg is required for MP3 conversion.")
             print("The audio will be downloaded in its original format instead.")
-    elif args and args.mp4:
+    elif args.mp4:
         format_selection = 'mp4'
-    elif args and args.high:
+    elif args.high:
         format_selection = 'high'
         if not ffmpeg_installed:
             print("\nWarning: FFmpeg is required for high quality downloads to merge video and audio.")
             print("Falling back to best available combined format.")
-    elif args and args.format:
+    elif args.format:
         format_selection = args.format
     else:
         # Display available formats and prompt for selection
@@ -898,7 +911,7 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
         else:
             print("FFmpeg not available - downloading best combined format instead")
     
-    output_dir = args.output if args and args.output else 'youtube_downloads'
+    output_dir = args.output if args.output else 'youtube_downloads'
     actual_output_dir, success = download_video(url, format_selection, output_dir, ffmpeg_installed)
     
     if success:
@@ -975,7 +988,7 @@ def main():
             return
         else:
             print("\nInvalid choice. Please enter 1, 2, or 3.")
-            time.sleep(1)
+            time.sleep(MENU_RETRY_DELAY)
 
 # Copyright notice and disclaimer
 def show_disclaimer():
