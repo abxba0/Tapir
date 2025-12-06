@@ -448,7 +448,7 @@ def download_video(url, format_selection, output_dir="youtube_downloads", ffmpeg
         'progress_hooks': [progress_hook],
         'quiet': False,
         'no_warnings': True,
-        'ignoreerrors': True if is_playlist else False,  # Continue on errors for playlists
+        'ignoreerrors': is_playlist,  # Continue on errors for playlists
     }
     
     # Add cookies support
@@ -464,7 +464,7 @@ def download_video(url, format_selection, output_dir="youtube_downloads", ffmpeg
         ydl_opts['download_archive'] = archive_file
         print(f"Using download archive: {archive_file}")
     elif is_playlist:
-        # Create default archive file for playlists
+        # Always use archive for playlists to enable incremental sync
         default_archive = os.path.join(safe_output_dir, '.yt-dlp-archive.txt')
         ydl_opts['download_archive'] = default_archive
         print(f"Using default archive file: {default_archive}")
@@ -993,8 +993,7 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
         entries_count = len(info.get('entries', []))
         print(f"Downloading playlist with {entries_count} videos...")
         print("Videos will be numbered in playlist order.")
-        if args.archive or not args.archive:  # Always use archive for playlists
-            print("Already downloaded videos will be skipped (incremental sync enabled).")
+        print("Already downloaded videos will be skipped (incremental sync enabled).")
     
     if format_selection == 'high':
         if ffmpeg_installed:
