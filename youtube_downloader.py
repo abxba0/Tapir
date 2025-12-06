@@ -126,7 +126,7 @@ def check_dependencies():
     
     return yt_dlp_installed, ffmpeg_installed
 
-# Validate YouTube URL
+# Validate YouTube URL (including playlists and channels)
 def is_valid_youtube_url(url):
     # Fixed the escape sequences in regex patterns
     youtube_regex = (
@@ -145,11 +145,25 @@ def is_valid_youtube_url(url):
     
     if shorts_regex_match:
         return True
+    
+    # Check for YouTube Playlist URLs
+    playlist_regex = r'(https?://)?(www\.)?youtube\.com/(playlist\?list=|watch\?.*&list=)'
+    playlist_regex_match = re.match(playlist_regex, url)
+    
+    if playlist_regex_match:
+        return True
+    
+    # Check for YouTube Channel URLs
+    channel_regex = r'(https?://)?(www\.)?youtube\.com/(channel/|c/|user/|@)'
+    channel_regex_match = re.match(channel_regex, url)
+    
+    if channel_regex_match:
+        return True
         
     return False
 
 # Extract video information using yt-dlp
-def get_video_info(url):
+def get_video_info(url, cookies_file=None, cookies_from_browser=None):
     import yt_dlp
     
     ydl_opts = {
@@ -160,6 +174,12 @@ def get_video_info(url):
         'forcejson': True,
     }
     
+    # Add cookies support
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+    elif cookies_from_browser:
+        ydl_opts['cookiesfrombrowser'] = (cookies_from_browser,)
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -169,10 +189,29 @@ def get_video_info(url):
         return None
 
 # Display video information and available formats
-def display_video_info(info):
+def display_video_info(info, is_playlist=False):
     if not info:
         return
     
+    # Handle playlist info
+    if is_playlist or info.get('_type') in ['playlist', 'multi_video']:
+        print("\n" + "="*80)
+        print(f"Playlist: {info.get('title', 'Unknown')}")
+        print(f"Channel: {info.get('channel', info.get('uploader', 'Unknown'))}")
+        
+        entries_count = len(info.get('entries', []))
+        print(f"Number of videos: {entries_count}")
+        
+        if info.get('description'):
+            desc = info['description']
+            if len(desc) > 150:
+                desc = desc[:147] + "..."
+            print(f"Description: {desc}")
+        
+        print("="*80)
+        return
+    
+    # Handle single video info
     print("\n" + "="*80)
     print(f"Title: {info.get('title', 'Unknown')}")
     print(f"Channel: {info.get('channel', 'Unknown')}")
@@ -388,15 +427,19 @@ def get_download_directory(specified_dir="youtube_downloads"):
             return temp_dir
 
 # Download video with selected format
-def download_video(url, format_selection, output_dir="youtube_downloads", ffmpeg_available=True):
+def download_video(url, format_selection, output_dir="youtube_downloads", ffmpeg_available=True, 
+                   cookies_file=None, cookies_from_browser=None, is_playlist=False, archive_file=None):
     import yt_dlp
     
     # Get a safe download directory with proper permissions
     safe_output_dir = get_download_directory(output_dir)
     print(f"Using download directory: {safe_output_dir}")
     
-    # Set output template
-    output_template = os.path.join(safe_output_dir, '%(title)s.%(ext)s')
+    # Set output template - preserve playlist order if it's a playlist
+    if is_playlist:
+        output_template = os.path.join(safe_output_dir, '%(playlist_index)03d - %(title)s.%(ext)s')
+    else:
+        output_template = os.path.join(safe_output_dir, '%(title)s.%(ext)s')
     
     # Configure yt-dlp options
     ydl_opts = {
@@ -405,8 +448,26 @@ def download_video(url, format_selection, output_dir="youtube_downloads", ffmpeg
         'progress_hooks': [progress_hook],
         'quiet': False,
         'no_warnings': True,
-        'ignoreerrors': False,
+        'ignoreerrors': True if is_playlist else False,  # Continue on errors for playlists
     }
+    
+    # Add cookies support
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+        print(f"Using cookies from file: {cookies_file}")
+    elif cookies_from_browser:
+        ydl_opts['cookiesfrombrowser'] = (cookies_from_browser,)
+        print(f"Using cookies from browser: {cookies_from_browser}")
+    
+    # Add archive file support for incremental downloads
+    if archive_file:
+        ydl_opts['download_archive'] = archive_file
+        print(f"Using download archive: {archive_file}")
+    elif is_playlist:
+        # Create default archive file for playlists
+        default_archive = os.path.join(safe_output_dir, '.yt-dlp-archive.txt')
+        ydl_opts['download_archive'] = default_archive
+        print(f"Using default archive file: {default_archive}")
     
     # Handle special format cases
     if format_selection == 'mp3':
@@ -843,31 +904,42 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     # Ensure args has default values if None
     if args is None:
         args = argparse.Namespace(url=None, mp3=False, mp4=False, high=False, 
-                                  format=None, info=False, output='youtube_downloads')
+                                  format=None, info=False, output='youtube_downloads',
+                                  cookies=None, cookies_from_browser=None, archive=None)
     
     # If no URL was provided via command line, ask for it
     url = args.url if args.url else None
     if not url:
-        url = input("\nEnter YouTube URL: ").strip()
+        url = input("\nEnter YouTube URL (video, playlist, or channel): ").strip()
     
     # Validate the URL
     if not is_valid_youtube_url(url):
         print("Error: Invalid YouTube URL")
         return
     
-    # Get video information
-    print("\nFetching video information...")
-    info = get_video_info(url)
+    # Get video/playlist information
+    print("\nFetching information...")
+    info = get_video_info(url, args.cookies, args.cookies_from_browser)
     
     if not info:
-        print("Failed to retrieve video information.")
+        print("Failed to retrieve information.")
         return
     
-    # Display video information
-    display_video_info(info)
+    # Check if it's a playlist or channel
+    is_playlist = info.get('_type') in ['playlist', 'multi_video']
+    
+    # Display video/playlist information
+    display_video_info(info, is_playlist)
     
     # If info-only mode, exit here
     if args.info:
+        if is_playlist:
+            print("\nPlaylist contains the following videos:")
+            for idx, entry in enumerate(info.get('entries', []), 1):
+                if entry:
+                    title = entry.get('title', 'Unknown')
+                    duration = format_duration(entry.get('duration', 0))
+                    print(f"  {idx}. {title} ({duration})")
         return
     
     # Determine format selection
@@ -888,28 +960,41 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     elif args.format:
         format_selection = args.format
     else:
-        # Display available formats and prompt for selection
-        all_formats = display_formats(info, ffmpeg_installed)
-        
-        if not all_formats:
-            print("No formats available for this video.")
-            return
-        
-        format_selection = input("\nEnter format selection (format ID or special option): ").strip()
-        
-        # Check if selected format requires FFmpeg
-        if format_selection.lower() in ['high', 'mp3'] and not ffmpeg_installed:
-            print(f"\nWarning: The '{format_selection}' option requires FFmpeg, which is not installed.")
-            alt_choice = input("Would you like to use 'best' format instead? (y/n): ").strip().lower()
-            if alt_choice == 'y':
-                format_selection = 'best'
-                print("Using 'best' format instead.")
-            else:
-                print("Download cancelled. Please install FFmpeg to use this format option.")
+        # For playlists, skip format display and use best by default
+        if is_playlist:
+            print("\nPlaylist detected. Using default format (best quality).")
+            print("You can specify a format using --format, --mp3, --mp4, or --high flags.")
+            format_selection = 'best'
+        else:
+            # Display available formats and prompt for selection
+            all_formats = display_formats(info, ffmpeg_installed)
+            
+            if not all_formats:
+                print("No formats available for this video.")
                 return
+            
+            format_selection = input("\nEnter format selection (format ID or special option): ").strip()
+            
+            # Check if selected format requires FFmpeg
+            if format_selection.lower() in ['high', 'mp3'] and not ffmpeg_installed:
+                print(f"\nWarning: The '{format_selection}' option requires FFmpeg, which is not installed.")
+                alt_choice = input("Would you like to use 'best' format instead? (y/n): ").strip().lower()
+                if alt_choice == 'y':
+                    format_selection = 'best'
+                    print("Using 'best' format instead.")
+                else:
+                    print("Download cancelled. Please install FFmpeg to use this format option.")
+                    return
     
-    # Download the video
+    # Download the video or playlist
     print(f"\nPreparing to download...")
+    
+    if is_playlist:
+        entries_count = len(info.get('entries', []))
+        print(f"Downloading playlist with {entries_count} videos...")
+        print("Videos will be numbered in playlist order.")
+        if args.archive or not args.archive:  # Always use archive for playlists
+            print("Already downloaded videos will be skipped (incremental sync enabled).")
     
     if format_selection == 'high':
         if ffmpeg_installed:
@@ -918,12 +1003,15 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
             print("FFmpeg not available - downloading best combined format instead")
     
     output_dir = args.output if args.output else 'youtube_downloads'
-    actual_output_dir, success = download_video(url, format_selection, output_dir, ffmpeg_installed)
+    actual_output_dir, success = download_video(
+        url, format_selection, output_dir, ffmpeg_installed,
+        args.cookies, args.cookies_from_browser, is_playlist, args.archive
+    )
     
     if success:
         print("\nDownload completed successfully!")
         # Show the output directory
-        print(f"\nVideo saved to: {actual_output_dir}")
+        print(f"\nFiles saved to: {actual_output_dir}")
         
         # Try to open the directory on supported platforms
         try:
@@ -942,15 +1030,20 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description='YouTube Video Downloader and Audio Converter')
-    parser.add_argument('url', nargs='?', help='YouTube video URL')
+    parser.add_argument('url', nargs='?', help='YouTube video, playlist, or channel URL')
     parser.add_argument('-f', '--format', help='Specify format code directly')
     parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
-    parser.add_argument('-i', '--info', action='store_true', help='Show video info only without downloading')
+    parser.add_argument('-i', '--info', action='store_true', help='Show video/playlist info only without downloading')
     parser.add_argument('-m', '--mp3', action='store_true', help='Convert to MP3 audio')
     parser.add_argument('--mp4', action='store_true', help='Download as MP4 video')
     parser.add_argument('--high', action='store_true', help='Download high quality video+audio')
     parser.add_argument('--convert', action='store_true', help='Launch audio conversion mode')
     parser.add_argument('--no-wait', action='store_true', help='Do not wait for user input at the end')
+    parser.add_argument('--cookies', help='Path to cookies file for authentication')
+    parser.add_argument('--cookies-from-browser', 
+                        choices=['brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi'],
+                        help='Extract cookies from browser for authentication')
+    parser.add_argument('--archive', help='Path to download archive file (records downloaded video IDs to skip duplicates)')
     
     args = parser.parse_args()
     
