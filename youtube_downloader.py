@@ -2,14 +2,17 @@
 """
 YouTube Video Downloader
 
-A command-line tool to download YouTube videos locally.
+A command-line tool to download YouTube videos locally and convert audio files.
 Uses yt-dlp library for downloading videos with format selection.
+Uses FFmpeg for audio format conversion.
 
 Features:
 - Quality selection
 - Multiple format support (MP4, MP3, etc.)
+- Audio format conversion
 - Metadata display
 - Download progress tracking
+- File size and quality estimation
 - Fully offline functionality after initial setup
 """
 
@@ -22,9 +25,20 @@ import json
 import platform
 import time
 import shutil
+import shlex
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
+
+# Version information
+VERSION = "2.0.0"
+VERSION_DATE = "2025-12-06"
+
+# Timeout for subprocess calls (in seconds)
+SUBPROCESS_TIMEOUT = 120
+
+# UI constants
+MENU_RETRY_DELAY = 1  # Seconds to wait before re-displaying menu on invalid input
 
 # Check if yt-dlp is installed, if not try to install it
 def check_dependencies():
@@ -465,38 +479,374 @@ def wait_for_exit():
     except Exception:
         pass
 
-# Main function
-def main():
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description='YouTube Video Downloader')
-    parser.add_argument('url', nargs='?', help='YouTube video URL')
-    parser.add_argument('-f', '--format', help='Specify format code directly')
-    parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
-    parser.add_argument('-i', '--info', action='store_true', help='Show video info only without downloading')
-    parser.add_argument('-m', '--mp3', action='store_true', help='Convert to MP3 audio')
-    parser.add_argument('--mp4', action='store_true', help='Download as MP4 video')
-    parser.add_argument('--high', action='store_true', help='Download high quality video+audio')
-    parser.add_argument('--no-wait', action='store_true', help='Do not wait for user input at the end')
+# Get audio file metadata using FFmpeg
+def get_audio_metadata(file_path):
+    """Extract metadata from audio file using FFprobe (part of FFmpeg)"""
+    try:
+        # Use shlex.quote to safely handle file paths with special characters
+        cmd = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_format',
+            '-show_streams',
+            file_path  # subprocess.run with list arguments handles this safely
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"Error: FFprobe timed out while analyzing the audio file.")
+        return None
+    except Exception as e:
+        print(f"Error getting audio metadata: {e}")
+        return None
+
+# Estimate output file size based on bitrate and duration
+def estimate_output_size(duration_seconds, bitrate_kbps):
+    """
+    Estimate output file size in bytes
     
-    args = parser.parse_args()
+    Formula: Size (bytes) = (bitrate in kbps * duration in seconds) / 8
+    The division by 8 converts bits to bytes (8 bits = 1 byte)
+    """
+    if not duration_seconds or not bitrate_kbps:
+        return None
     
-    # Display banner
+    size_bytes = (bitrate_kbps * 1000 * duration_seconds) / 8
+    return int(size_bytes)
+
+# Get quality description based on codec and bitrate
+def get_quality_description(codec, bitrate_kbps):
+    """Return a quality description based on codec and bitrate"""
+    if not bitrate_kbps:
+        return "Unknown quality"
+    
+    codec_lower = codec.lower() if codec else ""
+    
+    # For lossy formats
+    if any(x in codec_lower for x in ['mp3', 'aac', 'vorbis', 'opus']):
+        if bitrate_kbps >= 320:
+            return "Very High (320kbps)"
+        elif bitrate_kbps >= 256:
+            return "High (256kbps)"
+        elif bitrate_kbps >= 192:
+            return "Good (192kbps)"
+        elif bitrate_kbps >= 128:
+            return "Standard (128kbps)"
+        else:
+            return f"Low ({bitrate_kbps}kbps)"
+    
+    # For lossless formats
+    if any(x in codec_lower for x in ['flac', 'wav', 'alac', 'pcm']):
+        return "Lossless (Original Quality)"
+    
+    return f"{bitrate_kbps}kbps"
+
+# Get supported audio formats
+def get_supported_audio_formats():
+    """Return a dictionary of supported audio formats with their properties"""
+    return {
+        'mp3': {
+            'name': 'MP3',
+            'description': 'MPEG Audio Layer 3 (Lossy)',
+            'default_bitrate': 192,
+            'codec': 'libmp3lame'
+        },
+        'aac': {
+            'name': 'AAC',
+            'description': 'Advanced Audio Coding (Lossy)',
+            'default_bitrate': 192,
+            'codec': 'aac'
+        },
+        'm4a': {
+            'name': 'M4A',
+            'description': 'MPEG-4 Audio (AAC in M4A container)',
+            'default_bitrate': 192,
+            'codec': 'aac'
+        },
+        'ogg': {
+            'name': 'OGG',
+            'description': 'Ogg Vorbis (Lossy)',
+            'default_bitrate': 192,
+            'codec': 'libvorbis'
+        },
+        'wav': {
+            'name': 'WAV',
+            'description': 'Waveform Audio (Lossless)',
+            'default_bitrate': 1411,  # CD quality
+            'codec': 'pcm_s16le'
+        },
+        'flac': {
+            'name': 'FLAC',
+            'description': 'Free Lossless Audio Codec',
+            'default_bitrate': 1000,  # Variable, this is approximate
+            'codec': 'flac'
+        }
+    }
+
+# Convert audio file format
+def convert_audio_file(input_file, output_format, bitrate=None):
+    """Convert audio file to specified format using FFmpeg"""
+    formats = get_supported_audio_formats()
+    
+    if output_format.lower() not in formats:
+        print(f"Error: Unsupported output format '{output_format}'")
+        return False
+    
+    format_info = formats[output_format.lower()]
+    
+    # Use default bitrate if not specified
+    if bitrate is None:
+        bitrate = format_info['default_bitrate']
+    
+    # Construct output filename
+    input_path = Path(input_file)
+    output_file = input_path.with_suffix(f'.{output_format.lower()}')
+    
+    # If output file already exists, ask for confirmation
+    if output_file.exists():
+        response = input(f"\nOutput file '{output_file.name}' already exists. Overwrite? (y/n): ").strip().lower()
+        if response != 'y':
+            print("Conversion cancelled.")
+            return False
+    
+    print(f"\nConverting '{input_path.name}' to {format_info['name']}...")
+    
+    # Build FFmpeg command - using list arguments for subprocess.run provides safety
+    cmd = ['ffmpeg', '-i', str(input_file)]
+    
+    # Add codec and bitrate parameters
+    if output_format.lower() in ['wav', 'flac']:
+        # Lossless formats
+        cmd.extend(['-c:a', format_info['codec']])
+    else:
+        # Lossy formats - apply bitrate
+        cmd.extend(['-c:a', format_info['codec'], '-b:a', f'{bitrate}k'])
+    
+    # Overwrite output file without asking
+    cmd.extend(['-y', str(output_file)])
+    
+    try:
+        # Run FFmpeg conversion with timeout
+        # Using list arguments instead of shell=True provides protection against injection
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+        
+        if result.returncode == 0:
+            print(f"\nConversion successful!")
+            print(f"Output file: {output_file}")
+            print(f"Output size: {format_size(os.path.getsize(output_file))}")
+            return True
+        else:
+            print(f"\nConversion failed!")
+            print(f"Error: {result.stderr}")
+            return False
+    
+    except subprocess.TimeoutExpired:
+        print(f"\nConversion timed out after {SUBPROCESS_TIMEOUT} seconds.")
+        print("The file may be too large or the conversion is taking too long.")
+        return False
+    except Exception as e:
+        print(f"\nConversion error: {e}")
+        return False
+
+# Audio conversion workflow
+def audio_conversion_workflow():
+    """
+    Interactive workflow for audio file conversion.
+    
+    This function guides the user through the audio conversion process:
+    1. Prompts for an input audio file path
+    2. Validates the file exists and is accessible
+    3. Extracts and displays file metadata (size, duration, bitrate)
+    4. Presents available output format options
+    5. Allows custom bitrate selection for lossy formats
+    6. Shows estimated output size and quality
+    7. Requests confirmation before conversion
+    8. Performs the conversion using FFmpeg
+    
+    Requires FFmpeg to be installed and available in the system PATH.
+    
+    Returns:
+        None
+    """
     print("\n" + "="*80)
-    print("YouTube Video Downloader".center(80))
-    print("A local tool to download YouTube videos".center(80))
-    print(f"Version 1.3.0 - Last updated: 2025-06-23".center(80))
+    print("Audio Format Conversion".center(80))
     print("="*80)
     
-    # Check if dependencies are installed
-    yt_dlp_installed, ffmpeg_installed = check_dependencies()
-    if not yt_dlp_installed:
+    # Check if FFmpeg is available
+    if not shutil.which("ffmpeg"):
+        print("\nError: FFmpeg is required for audio conversion but is not installed.")
+        print("Please install FFmpeg and try again.")
         return
     
-    # Import yt-dlp after successful installation check
+    # Get input file
+    print("\nEnter the path to your audio file:")
+    print("Supported formats: MP3, M4A, WAV, FLAC, OGG, AAC, WMA")
+    input_file = input("File path: ").strip().strip('"').strip("'")
+    
+    # Validate and normalize input file path
+    try:
+        input_file = os.path.abspath(input_file)
+    except Exception as e:
+        print(f"\nError: Invalid file path. {e}")
+        return
+    
+    if not os.path.isfile(input_file):
+        print(f"\nError: File '{input_file}' not found.")
+        return
+    
+    # Additional security check - ensure it's a regular file and readable
+    if not os.access(input_file, os.R_OK):
+        print(f"\nError: Cannot read file '{input_file}'. Permission denied.")
+        return
+    
+    # Get file metadata
+    print("\nAnalyzing audio file...")
+    metadata = get_audio_metadata(input_file)
+    
+    if not metadata:
+        print("Warning: Could not extract audio metadata. Continuing anyway...")
+        input_size = os.path.getsize(input_file)
+        duration = None
+        input_bitrate = None
+    else:
+        # Extract relevant information
+        format_info = metadata.get('format', {})
+        input_size = int(format_info.get('size', os.path.getsize(input_file)))
+        duration = float(format_info.get('duration', 0))
+        input_bitrate = int(format_info.get('bit_rate', 0)) / 1000  # Convert to kbps
+        
+        # Try to get from audio stream if not in format
+        if not input_bitrate and 'streams' in metadata:
+            for stream in metadata['streams']:
+                if stream.get('codec_type') == 'audio':
+                    input_bitrate = int(stream.get('bit_rate', 0)) / 1000
+                    break
+    
+    # Display input file information
+    print("\n" + "-"*80)
+    print("Input File Information:")
+    print(f"  File: {os.path.basename(input_file)}")
+    print(f"  Size: {format_size(input_size)} ({input_size / (1024*1024):.2f} MB)")
+    
+    if duration:
+        print(f"  Duration: {format_duration(int(duration))}")
+    
+    if input_bitrate:
+        print(f"  Bitrate: {int(input_bitrate)} kbps")
+    
+    print("-"*80)
+    
+    # Display available output formats
+    formats = get_supported_audio_formats()
+    print("\nAvailable Output Formats:")
+    print(f"{'Code':<6} {'Format':<10} {'Description':<40} {'Quality':<20}")
+    print("-"*80)
+    
+    for i, (code, info) in enumerate(formats.items(), 1):
+        quality = get_quality_description(info['codec'], info['default_bitrate'])
+        print(f"{i:<6} {code.upper():<10} {info['description']:<40} {quality:<20}")
+    
+    print("-"*80)
+    
+    # Get output format selection
+    print("\nSelect output format (enter number or format code):")
+    format_choice = input("Choice: ").strip().lower()
+    
+    # Parse selection
+    output_format = None
+    if format_choice.isdigit():
+        choice_num = int(format_choice)
+        if 1 <= choice_num <= len(formats):
+            output_format = list(formats.keys())[choice_num - 1]
+    elif format_choice in formats:
+        output_format = format_choice
+    
+    if not output_format:
+        print("Invalid selection. Conversion cancelled.")
+        return
+    
+    format_info = formats[output_format]
+    
+    # Ask for custom bitrate for lossy formats
+    bitrate = format_info['default_bitrate']
+    if output_format not in ['wav', 'flac']:
+        print(f"\nDefault bitrate for {format_info['name']}: {bitrate} kbps")
+        custom_bitrate = input("Enter custom bitrate in kbps (or press Enter for default): ").strip()
+        if custom_bitrate.isdigit():
+            bitrate = int(custom_bitrate)
+    
+    # Estimate output file size
+    estimated_size = None
+    if duration and bitrate:
+        estimated_size = estimate_output_size(duration, bitrate)
+    
+    # Display conversion summary
+    print("\n" + "="*80)
+    print("Conversion Summary:")
+    print(f"  Output Format: {format_info['name']} ({format_info['description']})")
+    print(f"  Estimated Quality: {get_quality_description(format_info['codec'], bitrate)}")
+    print(f"  Input File Size: {format_size(input_size)} ({input_size / (1024*1024):.2f} MB)")
+    
+    if estimated_size:
+        print(f"  Estimated Output Size: {format_size(estimated_size)} ({estimated_size / (1024*1024):.2f} MB)")
+        
+        # Show size comparison
+        size_diff = estimated_size - input_size
+        if size_diff > 0:
+            print(f"  Size Change: +{format_size(size_diff)} (larger)")
+        elif size_diff < 0:
+            print(f"  Size Change: -{format_size(abs(size_diff))} (smaller)")
+        else:
+            print(f"  Size Change: Similar size")
+    
+    print("="*80)
+    
+    # Confirm conversion
+    confirm = input("\nProceed with conversion? (y/n): ").strip().lower()
+    if confirm != 'y':
+        print("Conversion cancelled.")
+        return
+    
+    # Perform conversion
+    success = convert_audio_file(input_file, output_format, bitrate)
+    
+    if success:
+        print("\n✓ Audio conversion completed successfully!")
+    else:
+        print("\n✗ Audio conversion failed.")
+
+# Main menu for choosing between video download and audio conversion
+def show_main_menu():
+    """Display main menu and get user choice"""
+    print("\n" + "="*80)
+    print("So what is my purpose?".center(80))
+    print("="*80)
+    print("\nPlease select an option:")
+    print("  1. Download YouTube video")
+    print("  2. Convert audio/music file")
+    print("  3. Exit")
+    print("-"*80)
+    
+    choice = input("Enter your choice (1-3): ").strip()
+    return choice
+
+# YouTube download workflow
+def youtube_download_workflow(args=None, ffmpeg_installed=True):
+    """Interactive workflow for YouTube video download"""
+    # Import yt-dlp
     import yt_dlp
     
+    # Ensure args has default values if None
+    if args is None:
+        args = argparse.Namespace(url=None, mp3=False, mp4=False, high=False, 
+                                  format=None, info=False, output='youtube_downloads')
+    
     # If no URL was provided via command line, ask for it
-    url = args.url
+    url = args.url if args.url else None
     if not url:
         url = input("\nEnter YouTube URL: ").strip()
     
@@ -518,8 +868,6 @@ def main():
     
     # If info-only mode, exit here
     if args.info:
-        if not args.no_wait:
-            wait_for_exit()
         return
     
     # Determine format selection
@@ -569,7 +917,8 @@ def main():
         else:
             print("FFmpeg not available - downloading best combined format instead")
     
-    actual_output_dir, success = download_video(url, format_selection, args.output, ffmpeg_installed)
+    output_dir = args.output if args.output else 'youtube_downloads'
+    actual_output_dir, success = download_video(url, format_selection, output_dir, ffmpeg_installed)
     
     if success:
         print("\nDownload completed successfully!")
@@ -588,6 +937,64 @@ def main():
             print(f"Note: Could not open the directory automatically. Error: {e}")
     else:
         print("\nDownload failed.")
+
+# Main function
+def main():
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='YouTube Video Downloader and Audio Converter')
+    parser.add_argument('url', nargs='?', help='YouTube video URL')
+    parser.add_argument('-f', '--format', help='Specify format code directly')
+    parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
+    parser.add_argument('-i', '--info', action='store_true', help='Show video info only without downloading')
+    parser.add_argument('-m', '--mp3', action='store_true', help='Convert to MP3 audio')
+    parser.add_argument('--mp4', action='store_true', help='Download as MP4 video')
+    parser.add_argument('--high', action='store_true', help='Download high quality video+audio')
+    parser.add_argument('--convert', action='store_true', help='Launch audio conversion mode')
+    parser.add_argument('--no-wait', action='store_true', help='Do not wait for user input at the end')
+    
+    args = parser.parse_args()
+    
+    # Display banner
+    print("\n" + "="*80)
+    print("YouTube Video Downloader & Audio Converter".center(80))
+    print("Download YouTube videos and convert audio files".center(80))
+    print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
+    print("="*80)
+    
+    # Check if dependencies are installed
+    yt_dlp_installed, ffmpeg_installed = check_dependencies()
+    if not yt_dlp_installed:
+        return
+    
+    # If convert flag is set, go directly to audio conversion
+    if args.convert:
+        audio_conversion_workflow()
+        return
+    
+    # If URL is provided via command line, go directly to download
+    if args.url:
+        youtube_download_workflow(args, ffmpeg_installed)
+        return
+    
+    # Show main menu if no URL provided
+    while True:
+        choice = show_main_menu()
+        
+        if choice == '1':
+            # YouTube download
+            youtube_download_workflow(args, ffmpeg_installed)
+            break
+        elif choice == '2':
+            # Audio conversion
+            audio_conversion_workflow()
+            break
+        elif choice == '3':
+            # Exit
+            print("\nGoodbye!")
+            return
+        else:
+            print("\nInvalid choice. Please enter 1, 2, or 3.")
+            time.sleep(MENU_RETRY_DELAY)
 
 # Copyright notice and disclaimer
 def show_disclaimer():
