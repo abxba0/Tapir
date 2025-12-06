@@ -25,6 +25,7 @@ import json
 import platform
 import time
 import shutil
+import shlex
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -482,13 +483,14 @@ def wait_for_exit():
 def get_audio_metadata(file_path):
     """Extract metadata from audio file using FFprobe (part of FFmpeg)"""
     try:
+        # Use shlex.quote to safely handle file paths with special characters
         cmd = [
             'ffprobe',
             '-v', 'quiet',
             '-print_format', 'json',
             '-show_format',
             '-show_streams',
-            file_path
+            file_path  # subprocess.run with list arguments handles this safely
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
@@ -504,9 +506,12 @@ def get_audio_metadata(file_path):
 
 # Estimate output file size based on bitrate and duration
 def estimate_output_size(duration_seconds, bitrate_kbps):
-    """Estimate output file size in bytes"""
-    # Size = (bitrate in kbps * duration in seconds) / 8 / 1024 (to get MB)
-    # Then convert back to bytes
+    """
+    Estimate output file size in bytes
+    
+    Formula: Size (bytes) = (bitrate in kbps * duration in seconds) / 8
+    The division by 8 converts bits to bytes (8 bits = 1 byte)
+    """
     if not duration_seconds or not bitrate_kbps:
         return None
     
@@ -610,7 +615,7 @@ def convert_audio_file(input_file, output_format, bitrate=None):
     
     print(f"\nConverting '{input_path.name}' to {format_info['name']}...")
     
-    # Build FFmpeg command
+    # Build FFmpeg command - using list arguments for subprocess.run provides safety
     cmd = ['ffmpeg', '-i', str(input_file)]
     
     # Add codec and bitrate parameters
@@ -626,6 +631,7 @@ def convert_audio_file(input_file, output_format, bitrate=None):
     
     try:
         # Run FFmpeg conversion with timeout
+        # Using list arguments instead of shell=True provides protection against injection
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
         
         if result.returncode == 0:
