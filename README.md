@@ -5,6 +5,9 @@ A command-line tool to download YouTube videos locally and convert audio files b
 ## Features
 
 - **YouTube Video Download**: Download YouTube videos with quality selection
+- **Playlist & Channel Download**: Download entire playlists or channels with automatic ordering
+- **Incremental Sync**: Skip already-downloaded videos for efficient playlist updates
+- **Cookies Support**: Access age-restricted and region-limited content using cookies
 - **Audio Format Conversion**: Convert audio files between popular formats (MP3, M4A, WAV, FLAC, OGG, AAC)
 - **Interactive Menu**: Choose between video download and audio conversion
 - **Quality Selection**: Choose from available video qualities and formats
@@ -34,10 +37,14 @@ A command-line tool to download YouTube videos locally and convert audio files b
 ### YouTube Video Download
 
 When you select option 1:
-1. Enter a YouTube URL when prompted
-2. View video information and available formats
+1. Enter a YouTube URL (video, playlist, or channel) when prompted
+2. View video/playlist information and available formats
 3. Select your preferred format
-4. Video will be downloaded to `~/youtube_downloads/`
+4. Videos will be downloaded to `~/youtube_downloads/`
+5. For playlists:
+   - Videos are numbered in playlist order (e.g., `001 - Video Title.mp4`)
+   - Already downloaded videos are automatically skipped
+   - Perfect for keeping playlists in sync
 
 ### Audio File Conversion
 
@@ -61,8 +68,15 @@ When you select option 2:
 ### YouTube Video Download
 
 ```bash
-# Basic usage
+# Basic usage - single video
 python3 youtube_downloader.py "https://youtube.com/watch?v=VIDEO_ID"
+
+# Download a playlist
+python3 youtube_downloader.py "https://youtube.com/playlist?list=PLAYLIST_ID"
+
+# Download from a channel
+python3 youtube_downloader.py "https://youtube.com/channel/CHANNEL_ID"
+python3 youtube_downloader.py "https://youtube.com/@username"
 
 # Convert to MP3
 python3 youtube_downloader.py --mp3 "https://youtube.com/watch?v=VIDEO_ID"
@@ -78,6 +92,15 @@ python3 youtube_downloader.py -o "/path/to/downloads" "https://youtube.com/watch
 
 # Show video info only
 python3 youtube_downloader.py --info "https://youtube.com/watch?v=VIDEO_ID"
+
+# Use cookies for age-restricted content
+python3 youtube_downloader.py --cookies cookies.txt "https://youtube.com/watch?v=VIDEO_ID"
+
+# Extract cookies from browser
+python3 youtube_downloader.py --cookies-from-browser chrome "https://youtube.com/watch?v=VIDEO_ID"
+
+# Use custom archive file for tracking downloaded videos
+python3 youtube_downloader.py --archive my-archive.txt "https://youtube.com/playlist?list=PLAYLIST_ID"
 ```
 
 ### Audio File Conversion
@@ -112,6 +135,63 @@ FFmpeg is required for:
 - **Windows**: Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and add to PATH
 - **macOS**: `brew install ffmpeg`
 - **Linux**: `sudo apt install ffmpeg` (Ubuntu/Debian) or equivalent for your distro
+
+## Playlist & Channel Downloads
+
+### Features
+- **Automatic ordering**: Videos are numbered in playlist order (001, 002, 003...)
+- **Incremental sync**: Already downloaded videos are skipped automatically
+- **Archive file**: Tracks downloaded video IDs to prevent duplicates
+- **Error handling**: Continues downloading even if individual videos fail
+
+### How It Works
+When you download a playlist:
+1. An archive file (`.yt-dlp-archive.txt`) is created in the download directory
+2. Each downloaded video's ID is recorded in this file
+3. On subsequent runs, videos in the archive are skipped
+4. Perfect for keeping your local copy in sync with the playlist
+
+### Example
+```bash
+# First run - downloads all videos
+python3 youtube_downloader.py "https://youtube.com/playlist?list=PLAYLIST_ID"
+
+# Second run - only downloads new videos added to the playlist
+python3 youtube_downloader.py "https://youtube.com/playlist?list=PLAYLIST_ID"
+```
+
+## Cookies Support
+
+### Why Use Cookies?
+Cookies enable downloading:
+- **Age-restricted content** - Videos requiring age verification
+- **Region-restricted content** - Videos blocked in certain countries
+- **Private/unlisted videos** - Content requiring authentication
+- **Member-only content** - Videos available to channel members
+
+### Using Cookies File
+Export your browser cookies to a Netscape format file using a browser extension:
+- Chrome: [Get cookies.txt](https://chrome.google.com/webstore/detail/get-cookiestxt/bgaddhkoddajcdgocldbbfleckgcbcid)
+- Firefox: [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
+
+```bash
+python3 youtube_downloader.py --cookies cookies.txt "VIDEO_URL"
+```
+
+### Using Browser Cookies Directly
+yt-dlp can extract cookies directly from your browser:
+
+```bash
+# Chrome
+python3 youtube_downloader.py --cookies-from-browser chrome "VIDEO_URL"
+
+# Firefox
+python3 youtube_downloader.py --cookies-from-browser firefox "VIDEO_URL"
+
+# Other supported browsers: brave, chromium, edge, opera, safari, vivaldi
+```
+
+**Note**: Make sure the browser is closed when using `--cookies-from-browser`, or it may fail to read the cookies.
 
 ## Format Options
 
