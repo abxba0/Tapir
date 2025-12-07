@@ -229,7 +229,7 @@ def is_valid_url(url):
             # Just checking if extraction is possible
             ydl.extract_info(url, download=False, process=False)
             return True
-    except:
+    except Exception:
         return False
 
 # Validate YouTube URL (including playlists and channels)
@@ -1034,6 +1034,12 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     detected_site = detect_site(url)
     site_info = get_supported_sites().get(detected_site, {'name': 'Unknown'})
     
+    # Basic URL format check
+    if not url.startswith(('http://', 'https://', 'www.')) and '.' not in url:
+        print("Error: Invalid URL format")
+        print("URLs should start with http://, https://, or www.")
+        return
+    
     # Validate the URL - use fast YouTube validation for YouTube URLs
     if detected_site == 'youtube':
         if not is_valid_youtube_url(url):
@@ -1054,6 +1060,8 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
         print("  1. The URL is correct and accessible")
         print("  2. The site is supported by yt-dlp")
         print("  3. You have an internet connection")
+        if detected_site == 'other':
+            print("  4. Try using --list-sites to see popular supported sites")
         return
     
     # Check if it's a playlist or channel
