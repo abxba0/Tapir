@@ -18,6 +18,9 @@ A command-line tool to download videos from **YouTube, Vimeo, SoundCloud, and 18
 - **⏱️ Progress Tracking**: Real-time download progress with speed and ETA
 - **🔧 Auto-Install**: Automatically attempts to install required dependencies
 - **💻 Cross-Platform**: Works on Windows, macOS, and Linux
+- **✨ Rich TUI Mode**: Beautiful terminal interface with tables and formatted output (auto-enabled when Rich library is available)
+- **📋 Clipboard Detection**: Automatically detects URLs in your clipboard for quick downloads
+- **🔍 Fuzzy Search**: Smart format selection with fuzzy matching for easier format choice
 
 ## Supported Sites
 
@@ -164,6 +167,23 @@ The script will automatically attempt to install required dependencies:
 - **yt-dlp**: For downloading videos (auto-installed via pip)
 - **FFmpeg**: For format conversion, high-quality downloads, and audio conversion (manual installation required)
 
+### Optional Dependencies for Enhanced TUI
+
+For the best experience with Rich TUI mode, fuzzy search, and clipboard detection, install optional dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+This includes:
+- **rich**: Beautiful terminal formatting and tables
+- **textual**: Advanced TUI components (future feature)
+- **pyperclip**: Clipboard URL detection
+- **thefuzz**: Fuzzy search for format selection
+- **python-Levenshtein**: Faster fuzzy matching
+
+**Note**: The tool works perfectly fine without these dependencies - it will automatically fall back to standard CLI mode.
+
 ### Installing FFmpeg
 
 FFmpeg is required for:
@@ -233,6 +253,50 @@ python3 youtube_downloader.py --cookies-from-browser firefox "VIDEO_URL"
 ```
 
 **Note**: Make sure the browser is closed when using `--cookies-from-browser`, or it may fail to read the cookies.
+
+## Rich TUI Features
+
+When optional dependencies are installed, the tool automatically enables Rich TUI mode with enhanced features:
+
+### Clipboard URL Detection
+
+The tool can automatically detect video URLs in your clipboard:
+
+1. Copy a video URL to your clipboard
+2. Run the script in interactive mode
+3. The tool will detect the URL and ask if you want to use it
+4. Confirm to skip manual URL entry
+
+This works across all supported sites and makes downloading multiple videos much faster!
+
+### Beautiful Format Tables
+
+Instead of plain text output, formats are displayed in beautiful, color-coded tables:
+
+- **Combined formats**: Show video+audio formats with resolution, filesize, and codecs
+- **Video-only formats**: Display video formats with quality details
+- **Audio-only formats**: List audio formats with bitrate information
+- **Special options**: Clearly highlighted preset options (best, high, mp3, mp4, etc.)
+
+### Fuzzy Search for Format Selection
+
+Don't remember the exact format ID? No problem! The fuzzy search feature helps you:
+
+- Type a partial match (e.g., "1080" to find 1080p formats)
+- Search by codec (e.g., "h264" or "vp9")
+- Search by extension (e.g., "mp4" or "webm")
+- Get smart suggestions when your input doesn't match exactly
+
+Example:
+```
+Enter format selection: 1080
+🔍 Did you mean: 137 (1920x1080 video)?
+Use this format? (Y/n)
+```
+
+### Graceful Fallback
+
+If optional dependencies aren't installed, the tool automatically falls back to standard CLI mode with all core functionality intact. This ensures compatibility across all environments.
 
 ## Format Options
 
