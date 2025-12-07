@@ -19,8 +19,11 @@ docker build --help > /dev/null && echo "Docker is available"
 ## Local Build (with network access)
 
 ```bash
-# Build the image
+# Build the image with default version
 docker build -t yt-video-downloader:latest .
+
+# Build with custom version
+docker build --build-arg VERSION=4.0.1 -t yt-video-downloader:4.0.1 .
 
 # Verify the build
 docker images | grep yt-video-downloader

@@ -23,10 +23,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Stage 2: Runtime stage
 FROM python:3.12-alpine
 
+# Build argument for version (can be overridden during build)
+ARG VERSION=4.0.0
+
 # Set metadata labels
 LABEL maintainer="YT-video-downloader"
 LABEL description="Multi-Site Video Downloader & Audio Converter supporting YouTube, Vimeo, SoundCloud, and 1800+ sites"
-LABEL version="4.0.0"
+LABEL version="${VERSION}"
 
 # Install runtime dependencies only
 # ffmpeg is essential for audio conversion and high-quality video merging

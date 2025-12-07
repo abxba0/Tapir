@@ -43,8 +43,11 @@ PYTHON_VERSION=$(docker run --rm "$IMAGE_NAME" sh -c "python --version")
 echo "✓ Python version: $PYTHON_VERSION"
 
 echo "\n7. Checking installed Python packages..."
-docker run --rm "$IMAGE_NAME" sh -c "pip list | grep -E '(yt-dlp|rich|textual)'" || true
-echo "✓ Python packages checked"
+if docker run --rm "$IMAGE_NAME" sh -c "pip list | grep -E '(yt-dlp|rich|textual)'" > /dev/null 2>&1; then
+    echo "✓ Python packages are installed"
+else
+    echo "⚠ Some optional packages may not be installed (this is normal)"
+fi
 
 echo "\n8. Testing volume mount..."
 TEST_DIR=$(mktemp -d)

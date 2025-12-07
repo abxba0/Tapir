@@ -3,9 +3,9 @@
 .gitignore
 .gitattributes
 
-# Documentation (except README.md which is needed for context)
+# Documentation files are excluded to reduce image size
+# Users can access documentation from the repository or Docker Hub
 *.md
-!README.md
 LICENSE
 
 # Docker and CI/CD files
