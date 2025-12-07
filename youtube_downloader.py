@@ -36,8 +36,8 @@ from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-from queue import Queue
 import threading
+import copy
 
 # Try to import TUI libraries (optional)
 try:
@@ -1371,8 +1371,6 @@ def download_video_parallel(url, format_selection, output_dir, ffmpeg_available,
     Returns:
         Tuple of (url, success, message)
     """
-    import yt_dlp
-    
     try:
         # Thread-safe print with index information
         print(f"\n[{index}/{total}] Starting download: {url}")
@@ -1473,7 +1471,8 @@ def parallel_download_workflow(urls, format_selection, output_dir, ffmpeg_availa
     print(f"Successfully downloaded: {status['success']}")
     print(f"Failed: {status['failed']}")
     print(f"Time elapsed: {format_duration(int(elapsed_time))}")
-    print(f"Average time per video: {elapsed_time / len(urls):.2f} seconds")
+    if len(urls) > 0:
+        print(f"Average time per video: {elapsed_time / len(urls):.2f} seconds")
     print("="*80)
     
     # Display detailed results if there were failures
@@ -1513,18 +1512,9 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
                                   format=None, info=False, output='youtube_downloads',
                                   cookies=None, cookies_from_browser=None, archive=None)
     
-    # Handle URL - convert to string if it's a list with one element
-    url = args.url if args.url else None
-    if isinstance(url, list):
-        if len(url) == 1:
-            url = url[0]
-        elif len(url) > 1:
-            print("Error: Multiple URLs detected. Use --parallel for parallel downloads.")
-            return
-        else:
-            url = None
-    
     # If no URL was provided via command line, ask for it
+    # Note: URL should be a string at this point (handled by main())
+    url = args.url if args.url else None
     if not url:
         # Show supported sites
         print("\n" + "="*80)
@@ -1848,9 +1838,10 @@ def main():
     
     # Single URL or interactive mode
     if len(urls) == 1:
-        # Create args-like object with the single URL
-        args.url = urls[0]
-        youtube_download_workflow(args, ffmpeg_installed)
+        # Create a new args namespace with the single URL as a string
+        single_url_args = copy.copy(args)
+        single_url_args.url = urls[0]
+        youtube_download_workflow(single_url_args, ffmpeg_installed)
         return
     
     # Show main menu if no URL provided
