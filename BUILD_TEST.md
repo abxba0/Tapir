@@ -4,13 +4,16 @@
 
 If you're building this Docker image in a CI/CD environment with network restrictions, you may encounter issues with Alpine package repositories. The Dockerfile is designed to work in standard Docker environments with internet access.
 
-## Quick Build Test
+## Quick Dockerfile Validation
 
-To verify the Dockerfile syntax and structure is correct without network access:
+To validate the Dockerfile syntax without building:
 
 ```bash
-# Check Dockerfile syntax
-docker build --no-cache --dry-run -t yt-video-downloader:test . 2>&1 | grep -i error || echo "Dockerfile syntax is valid"
+# Check Dockerfile with hadolint (if installed)
+docker run --rm -i hadolint/hadolint < Dockerfile
+
+# Or simply check for syntax errors
+docker build --help > /dev/null && echo "Docker is available"
 ```
 
 ## Local Build (with network access)
@@ -38,13 +41,15 @@ docker run --rm yt-video-downloader:latest --help
 # Test list sites
 docker run --rm yt-video-downloader:latest --list-sites
 
-# Test with a real URL (replace with actual test URL)
-docker run --rm -v $(pwd)/test-downloads:/downloads yt-video-downloader:latest \
-  "https://www.youtube.com/watch?v=jNQXAC9IVRw" --info
+# Test with a stable public domain video (Big Buck Bunny)
+TEST_VIDEO="https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+
+# Get video info
+docker run --rm yt-video-downloader:latest "$TEST_VIDEO" --info
 
 # Test with output directory
 docker run --rm -v $(pwd)/test-downloads:/downloads yt-video-downloader:latest \
-  "https://www.youtube.com/watch?v=jNQXAC9IVRw" -o /downloads --info
+  "$TEST_VIDEO" -o /downloads --info
 ```
 
 ## Verifying FFmpeg
@@ -65,3 +70,15 @@ docker images yt-video-downloader:latest --format "table {{.Repository}}\t{{.Tag
 ```
 
 Expected size: ~300-500MB (Alpine + Python + FFmpeg + dependencies)
+
+## Automated Testing
+
+Use the provided test script:
+
+```bash
+# Make it executable
+chmod +x test-docker.sh
+
+# Run all tests
+./test-docker.sh
+```

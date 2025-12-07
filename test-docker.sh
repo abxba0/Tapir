@@ -9,6 +9,8 @@ echo "YT-Video-Downloader Docker Tests"
 echo "==================================="
 
 IMAGE_NAME="yt-video-downloader:latest"
+# Using a public domain video that should remain available
+TEST_VIDEO_URL="https://www.youtube.com/watch?v=aqz-KE-bpKQ"  # Big Buck Bunny (CC licensed, stable)
 
 echo "\n1. Checking if Docker is installed..."
 if ! command -v docker >/dev/null 2>&1; then
@@ -55,8 +57,8 @@ SIZE=$(docker images "$IMAGE_NAME" --format "{{.Size}}")
 echo "✓ Image size: $SIZE"
 
 echo "\n10. Testing info command (requires internet)..."
-if docker run --rm "$IMAGE_NAME" "https://www.youtube.com/watch?v=jNQXAC9IVRw" --info 2>&1 | grep -q "Title:"; then
-    echo "✓ Info command works"
+if docker run --rm "$IMAGE_NAME" "$TEST_VIDEO_URL" --info 2>&1 | grep -q "Title:"; then
+    echo "✓ Info command works with test video"
 else
     echo "⚠ Info command test skipped (no internet or video unavailable)"
 fi
