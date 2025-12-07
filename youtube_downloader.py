@@ -33,15 +33,43 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 
+# Try to import TUI libraries (optional)
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, TaskID
+    from rich.panel import Panel
+    from rich.prompt import Prompt, Confirm
+    from rich import print as rprint
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+try:
+    import pyperclip
+    CLIPBOARD_AVAILABLE = True
+except ImportError:
+    CLIPBOARD_AVAILABLE = False
+
+try:
+    from thefuzz import fuzz, process
+    FUZZY_AVAILABLE = True
+except ImportError:
+    FUZZY_AVAILABLE = False
+
 # Version information
-VERSION = "2.0.0"
-VERSION_DATE = "2025-12-06"
+VERSION = "3.0.0"
+VERSION_DATE = "2025-12-07"
 
 # Timeout for subprocess calls (in seconds)
 SUBPROCESS_TIMEOUT = 120
 
 # UI constants
 MENU_RETRY_DELAY = 1  # Seconds to wait before re-displaying menu on invalid input
+
+# Fuzzy search constants
+FUZZY_MATCH_THRESHOLD_SPECIAL = 70  # Threshold for matching special options (best, high, etc.)
+FUZZY_MATCH_THRESHOLD_FORMATS = 60  # Threshold for matching format IDs and properties
 
 # Check if yt-dlp is installed, if not try to install it
 def check_dependencies():
@@ -208,6 +236,24 @@ def detect_site(url):
         # If URL parsing fails, return 'other'
         return 'other'
 
+# Get URL from clipboard if available
+def get_clipboard_url():
+    """Try to get a URL from the clipboard"""
+    if not CLIPBOARD_AVAILABLE:
+        return None
+    
+    try:
+        clipboard_content = pyperclip.paste()
+        if clipboard_content and isinstance(clipboard_content, str):
+            # Check if clipboard contains a URL
+            clipboard_content = clipboard_content.strip()
+            if clipboard_content.startswith(('http://', 'https://', 'www.')):
+                return clipboard_content
+    except Exception:
+        pass
+    
+    return None
+
 # Validate URL using yt-dlp (supports all sites)
 def is_valid_url(url):
     """
@@ -310,6 +356,51 @@ def display_video_info(info, is_playlist=False):
     if not info:
         return
     
+    if RICH_AVAILABLE:
+        display_video_info_rich(info, is_playlist)
+    else:
+        display_video_info_standard(info, is_playlist)
+
+# Display video info using Rich
+def display_video_info_rich(info, is_playlist=False):
+    console = Console()
+    
+    # Handle playlist info
+    if is_playlist or info.get('_type') in ['playlist', 'multi_video']:
+        panel_content = []
+        panel_content.append(f"[bold cyan]Playlist:[/bold cyan] {info.get('title', 'Unknown')}")
+        panel_content.append(f"[bold yellow]Channel:[/bold yellow] {info.get('channel', info.get('uploader', 'Unknown'))}")
+        
+        entries_count = len(info.get('entries', []))
+        panel_content.append(f"[bold green]Number of videos:[/bold green] {entries_count}")
+        
+        if info.get('description'):
+            desc = info['description']
+            if len(desc) > 150:
+                desc = desc[:147] + "..."
+            panel_content.append(f"[bold]Description:[/bold] {desc}")
+        
+        console.print(Panel("\n".join(panel_content), title="📋 Playlist Information", border_style="cyan"))
+        return
+    
+    # Handle single video info
+    panel_content = []
+    panel_content.append(f"[bold cyan]Title:[/bold cyan] {info.get('title', 'Unknown')}")
+    panel_content.append(f"[bold yellow]Channel:[/bold yellow] {info.get('channel', 'Unknown')}")
+    panel_content.append(f"[bold green]Duration:[/bold green] {format_duration(info.get('duration', 0))}")
+    panel_content.append(f"[bold blue]Upload Date:[/bold blue] {info.get('upload_date', 'Unknown')}")
+    panel_content.append(f"[bold magenta]Views:[/bold magenta] {format_count(info.get('view_count', 0))}")
+    
+    if info.get('description'):
+        desc = info['description']
+        if len(desc) > 150:
+            desc = desc[:147] + "..."
+        panel_content.append(f"[bold]Description:[/bold] {desc}")
+    
+    console.print(Panel("\n".join(panel_content), title="📺 Video Information", border_style="cyan"))
+
+# Display video info using standard output
+def display_video_info_standard(info, is_playlist=False):
     # Handle playlist info
     if is_playlist or info.get('_type') in ['playlist', 'multi_video']:
         print("\n" + "="*80)
@@ -360,6 +451,182 @@ def format_duration(seconds):
 # Format large numbers with commas
 def format_count(count):
     return f"{count:,}" if count else "Unknown"
+
+# Fuzzy search for format selection
+def fuzzy_search_format(query, all_formats, special_options=None):
+    """
+    Use fuzzy matching to find the best format match from user query.
+    Supports searching by resolution, extension, codec, or format ID.
+    """
+    if not FUZZY_AVAILABLE:
+        return None
+    
+    if special_options is None:
+        special_options = ['best', 'bestvideo', 'bestaudio', 'high', 'mp3', 'mp4']
+    
+    # First check if it's a special option
+    special_match = process.extractOne(query, special_options, scorer=fuzz.ratio)
+    if special_match and special_match[1] >= FUZZY_MATCH_THRESHOLD_SPECIAL:
+        return special_match[0]
+    
+    # Build searchable strings for each format
+    searchable_formats = []
+    for f in all_formats:
+        format_id = f.get('format_id', '')
+        ext = f.get('ext', '')
+        height = f.get('height', 0)
+        resolution = f"{height}p" if height and height > 0 else ""
+        vcodec = f.get('vcodec', '')
+        acodec = f.get('acodec', '')
+        
+        # Create searchable string
+        search_str = f"{format_id} {ext} {resolution} {vcodec} {acodec}"
+        searchable_formats.append((search_str, format_id))
+    
+    # Perform fuzzy search
+    if searchable_formats:
+        match = process.extractOne(query, [s[0] for s in searchable_formats], scorer=fuzz.partial_ratio)
+        if match and match[1] >= FUZZY_MATCH_THRESHOLD_FORMATS:
+            # Find the format_id corresponding to the matched string
+            for search_str, format_id in searchable_formats:
+                if search_str == match[0]:
+                    return format_id
+    
+    return None
+
+# Display available formats for selection using Rich tables
+def display_formats_rich(info, ffmpeg_available=True):
+    """Display formats using Rich tables for better visualization"""
+    if not info or 'formats' not in info:
+        if RICH_AVAILABLE:
+            console = Console()
+            console.print("[red]No format information available.[/red]")
+        else:
+            print("No format information available.")
+        return []
+    
+    console = Console()
+    formats = info['formats']
+    
+    # Group formats by type
+    video_formats = []
+    audio_formats = []
+    combined_formats = []
+    
+    for f in formats:
+        if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+            combined_formats.append(f)
+        elif f.get('vcodec') != 'none':
+            video_formats.append(f)
+        elif f.get('acodec') != 'none':
+            audio_formats.append(f)
+    
+    # Sort formats by quality
+    video_formats.sort(key=lambda x: (x.get('height', 0) or 0, x.get('tbr', 0) or 0), reverse=True)
+    audio_formats.sort(key=lambda x: x.get('tbr', 0) or 0, reverse=True)
+    combined_formats.sort(key=lambda x: (x.get('height', 0) or 0, x.get('tbr', 0) or 0), reverse=True)
+    
+    all_formats = []
+    
+    # Display combined formats (video+audio)
+    if combined_formats:
+        table = Table(title="Combined Video+Audio Formats", show_header=True, header_style="bold magenta")
+        table.add_column("ID", style="cyan", width=8)
+        table.add_column("Extension", style="green", width=12)
+        table.add_column("Resolution", style="yellow", width=12)
+        table.add_column("Filesize", style="blue", width=15)
+        table.add_column("Codec", style="white", width=25)
+        
+        for f in combined_formats:
+            format_id = f.get('format_id', 'N/A')
+            ext = f.get('ext', 'N/A')
+            height = f.get('height')
+            resolution = f"{height}p" if height and height > 0 else "N/A"
+            
+            filesize = f.get('filesize') or f.get('filesize_approx')
+            filesize_str = format_size(filesize) if filesize else "Unknown"
+            
+            vcodec = f.get('vcodec', 'N/A')
+            acodec = f.get('acodec', 'N/A')
+            codec = f"{vcodec}/{acodec}"
+            
+            table.add_row(format_id, ext, resolution, filesize_str, codec)
+            all_formats.append(f)
+        
+        console.print(table)
+    
+    # Display video-only formats
+    if video_formats:
+        table = Table(title="Video-Only Formats", show_header=True, header_style="bold magenta")
+        table.add_column("ID", style="cyan", width=8)
+        table.add_column("Extension", style="green", width=12)
+        table.add_column("Resolution", style="yellow", width=12)
+        table.add_column("Filesize", style="blue", width=15)
+        table.add_column("Codec", style="white", width=25)
+        
+        for f in video_formats:
+            format_id = f.get('format_id', 'N/A')
+            ext = f.get('ext', 'N/A')
+            height = f.get('height')
+            resolution = f"{height}p" if height and height > 0 else "N/A"
+            
+            filesize = f.get('filesize') or f.get('filesize_approx')
+            filesize_str = format_size(filesize) if filesize else "Unknown"
+            
+            codec = f.get('vcodec', 'N/A')
+            
+            table.add_row(format_id, ext, resolution, filesize_str, codec)
+            all_formats.append(f)
+        
+        console.print(table)
+    
+    # Display audio-only formats
+    if audio_formats:
+        table = Table(title="Audio-Only Formats", show_header=True, header_style="bold magenta")
+        table.add_column("ID", style="cyan", width=8)
+        table.add_column("Extension", style="green", width=12)
+        table.add_column("Bitrate", style="yellow", width=12)
+        table.add_column("Filesize", style="blue", width=15)
+        table.add_column("Codec", style="white", width=25)
+        
+        for f in audio_formats:
+            format_id = f.get('format_id', 'N/A')
+            ext = f.get('ext', 'N/A')
+            
+            abr = f.get('abr')
+            bitrate = f"{int(abr)}kbps" if abr else "Unknown"
+            
+            filesize = f.get('filesize') or f.get('filesize_approx')
+            filesize_str = format_size(filesize) if filesize else "Unknown"
+            
+            codec = f.get('acodec', 'N/A')
+            
+            table.add_row(format_id, ext, bitrate, filesize_str, codec)
+            all_formats.append(f)
+        
+        console.print(table)
+    
+    # Display special options
+    special_table = Table(title="Special Format Options", show_header=True, header_style="bold green")
+    special_table.add_column("Option", style="cyan", width=12)
+    special_table.add_column("Description", style="white", width=60)
+    
+    special_table.add_row("best", "Best quality (video+audio)")
+    special_table.add_row("bestvideo", "Best video only")
+    special_table.add_row("bestaudio", "Best audio only")
+    
+    if ffmpeg_available:
+        special_table.add_row("high", "High quality video+audio (selects best separate streams and combines them)")
+        special_table.add_row("mp3", "Convert to MP3 audio")
+    else:
+        special_table.add_row("high", "[REQUIRES FFMPEG] High quality video+audio")
+        special_table.add_row("mp3", "[REQUIRES FFMPEG] Convert to MP3 audio")
+    
+    special_table.add_row("mp4", "Download as MP4 video")
+    
+    console.print(special_table)
+    
+    return all_formats
 
 # Display available formats for selection
 def display_formats(info, ffmpeg_available=True):
@@ -1038,7 +1305,26 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
         print(f"  • And 1800+ other sites supported by yt-dlp")
         print("="*80)
         
-        url = input("\nEnter video URL (from any supported site): ").strip()
+        # Try to get URL from clipboard
+        clipboard_url = get_clipboard_url()
+        url = None  # Initialize to None explicitly
+        
+        if clipboard_url:
+            if RICH_AVAILABLE:
+                console = Console()
+                console.print(f"\n[cyan]📋 Detected URL in clipboard:[/cyan] [yellow]{clipboard_url}[/yellow]")
+                use_clipboard = Confirm.ask("Use this URL?", default=True)
+                if use_clipboard:
+                    url = clipboard_url
+            else:
+                print(f"\n📋 Detected URL in clipboard: {clipboard_url}")
+                use_clipboard = input("Use this URL? (y/n): ").strip().lower()
+                if use_clipboard == 'y':
+                    url = clipboard_url
+        
+        # If URL not set from clipboard, ask for manual input
+        if not url:
+            url = input("\nEnter video URL (from any supported site): ").strip()
     
     # Detect which site the URL is from
     detected_site = detect_site(url)
@@ -1116,13 +1402,41 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
             format_selection = 'best'
         else:
             # Display available formats and prompt for selection
-            all_formats = display_formats(info, ffmpeg_installed)
+            if RICH_AVAILABLE:
+                all_formats = display_formats_rich(info, ffmpeg_installed)
+            else:
+                all_formats = display_formats(info, ffmpeg_installed)
             
             if not all_formats:
                 print("No formats available for this video.")
                 return
             
-            format_selection = input("\nEnter format selection (format ID or special option): ").strip()
+            # Get format selection with fuzzy search support
+            if RICH_AVAILABLE:
+                format_selection = Prompt.ask("\n[bold cyan]Enter format selection[/bold cyan] (format ID or special option)")
+            else:
+                format_selection = input("\nEnter format selection (format ID or special option): ").strip()
+            
+            # Try fuzzy search if available and input doesn't match exactly
+            if FUZZY_AVAILABLE and format_selection:
+                special_options = ['best', 'bestvideo', 'bestaudio', 'high', 'mp3', 'mp4']
+                # Create a set for O(1) lookup of format IDs
+                format_ids = {f.get('format_id') for f in all_formats}
+                
+                if format_selection.lower() not in special_options and format_selection not in format_ids:
+                    fuzzy_result = fuzzy_search_format(format_selection, all_formats, special_options)
+                    if fuzzy_result:
+                        if RICH_AVAILABLE:
+                            console = Console()
+                            console.print(f"[yellow]🔍 Did you mean: [bold]{fuzzy_result}[/bold]?[/yellow]")
+                            use_fuzzy = Confirm.ask("Use this format?", default=True)
+                            if use_fuzzy:
+                                format_selection = fuzzy_result
+                        else:
+                            print(f"🔍 Did you mean: {fuzzy_result}?")
+                            use_fuzzy = input("Use this format? (y/n): ").strip().lower()
+                            if use_fuzzy == 'y':
+                                format_selection = fuzzy_result
             
             # Check if selected format requires FFmpeg
             if format_selection.lower() in ['high', 'mp3'] and not ffmpeg_installed:
@@ -1197,11 +1511,20 @@ def main():
     args = parser.parse_args()
     
     # Display banner
-    print("\n" + "="*80)
-    print("Multi-Site Video Downloader & Audio Converter".center(80))
-    print("Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites".center(80))
-    print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
-    print("="*80)
+    if RICH_AVAILABLE:
+        console = Console()
+        console.print("\n" + "="*80)
+        console.print("[bold cyan]Multi-Site Video Downloader & Audio Converter[/bold cyan]", justify="center")
+        console.print("[yellow]Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites[/yellow]", justify="center")
+        console.print(f"[green]Version {VERSION} - Last updated: {VERSION_DATE}[/green]", justify="center")
+        console.print("[dim]✨ Rich TUI Mode Enabled ✨[/dim]", justify="center")
+        console.print("="*80 + "\n")
+    else:
+        print("\n" + "="*80)
+        print("Multi-Site Video Downloader & Audio Converter".center(80))
+        print("Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites".center(80))
+        print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
+        print("="*80)
     
     # Handle --list-sites flag
     if args.list_sites:
