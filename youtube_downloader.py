@@ -178,24 +178,34 @@ def get_supported_sites():
 # Detect which site a URL belongs to
 def detect_site(url):
     """Detect which site a URL belongs to based on domain"""
-    url_lower = url.lower()
-    
-    # Check for popular sites
-    if 'youtube.com' in url_lower or 'youtu.be' in url_lower:
-        return 'youtube'
-    elif 'vimeo.com' in url_lower:
-        return 'vimeo'
-    elif 'soundcloud.com' in url_lower:
-        return 'soundcloud'
-    elif 'dailymotion.com' in url_lower:
-        return 'dailymotion'
-    elif 'twitch.tv' in url_lower:
-        return 'twitch'
-    elif 'bandcamp.com' in url_lower:
-        return 'bandcamp'
-    elif 'tiktok.com' in url_lower:
-        return 'tiktok'
-    else:
+    # Parse the URL to extract the hostname
+    try:
+        parsed = urlparse(url.lower())
+        hostname = parsed.netloc or parsed.path.split('/')[0]
+        
+        # Remove 'www.' prefix if present
+        if hostname.startswith('www.'):
+            hostname = hostname[4:]
+        
+        # Check for popular sites by exact domain match or subdomain
+        if hostname == 'youtube.com' or hostname.endswith('.youtube.com') or hostname == 'youtu.be':
+            return 'youtube'
+        elif hostname == 'vimeo.com' or hostname.endswith('.vimeo.com'):
+            return 'vimeo'
+        elif hostname == 'soundcloud.com' or hostname.endswith('.soundcloud.com'):
+            return 'soundcloud'
+        elif hostname == 'dailymotion.com' or hostname.endswith('.dailymotion.com'):
+            return 'dailymotion'
+        elif hostname == 'twitch.tv' or hostname.endswith('.twitch.tv'):
+            return 'twitch'
+        elif hostname.endswith('.bandcamp.com') or hostname == 'bandcamp.com':
+            return 'bandcamp'
+        elif hostname == 'tiktok.com' or hostname.endswith('.tiktok.com'):
+            return 'tiktok'
+        else:
+            return 'other'
+    except Exception:
+        # If URL parsing fails, return 'other'
         return 'other'
 
 # Validate URL using yt-dlp (supports all sites)
