@@ -3,10 +3,15 @@
 .gitignore
 .gitattributes
 
-# Documentation
+# Documentation (except README.md which is needed for context)
 *.md
 !README.md
 LICENSE
+
+# Docker and CI/CD files
+docker-compose.yml
+.github-workflow-example.yml
+test-docker.sh
 
 # Test files
 test_*.py
