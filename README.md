@@ -8,6 +8,9 @@ A command-line tool to download videos from **YouTube, Vimeo, SoundCloud, and 18
 - **📺 Video Download**: Download videos with quality selection from any supported site
 - **📝 Playlist & Channel Download**: Download entire playlists or channels with automatic ordering
 - **🔄 Incremental Sync**: Skip already-downloaded videos for efficient playlist updates
+- **⚡ Parallel Downloads**: Download multiple videos simultaneously with configurable worker pools
+- **📋 Bulk Processing**: Process large video lists from files or standard input
+- **🔀 Queue Management**: Robust job queue for managing concurrent downloads
 - **🍪 Cookies Support**: Access age-restricted and region-limited content using cookies
 - **🎵 Audio Format Conversion**: Convert audio files between popular formats (MP3, M4A, WAV, FLAC, OGG, AAC)
 - **🖥️ Interactive Menu**: Choose between video download and audio conversion
@@ -172,6 +175,47 @@ python3 youtube_downloader.py --cookies-from-browser chrome "https://youtube.com
 # Use custom archive file for tracking downloaded videos
 python3 youtube_downloader.py --archive my-archive.txt "https://youtube.com/playlist?list=PLAYLIST_ID"
 ```
+
+### Parallel Downloads
+
+Download multiple videos simultaneously for faster processing:
+
+```bash
+# Download multiple URLs in parallel (default: 3 workers)
+python3 youtube_downloader.py "URL1" "URL2" "URL3" --parallel
+
+# Specify custom number of workers (max: 10)
+python3 youtube_downloader.py "URL1" "URL2" "URL3" --parallel --max-workers 5
+
+# Download from a batch file (one URL per line)
+python3 youtube_downloader.py --batch-file urls.txt --parallel
+
+# Read URLs from standard input
+cat urls.txt | python3 youtube_downloader.py --stdin --parallel
+
+# Combine with format options
+python3 youtube_downloader.py --batch-file urls.txt --parallel --mp3 --max-workers 4
+
+# Download with high quality in parallel
+python3 youtube_downloader.py "URL1" "URL2" --parallel --high
+```
+
+**Batch File Format:**
+```
+# urls.txt - one URL per line, comments start with #
+https://youtube.com/watch?v=VIDEO1
+https://vimeo.com/VIDEO2
+# This is a comment
+https://soundcloud.com/artist/track
+```
+
+**Features:**
+- **Concurrent downloads**: Process multiple videos simultaneously
+- **Configurable workers**: Adjust parallelism from 1 to 10 workers
+- **Bulk input**: Accept URLs from files, stdin, or command-line arguments
+- **Thread-safe tracking**: Monitor progress and failures across all workers
+- **Error handling**: Continues downloading even if individual videos fail
+- **Summary reports**: View success/failure statistics after completion
 
 ### Audio File Conversion
 
