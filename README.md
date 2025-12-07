@@ -42,6 +42,32 @@ python3 youtube_downloader.py --list-sites
 
 ## Quick Start
 
+### Installation
+
+#### Basic Installation (Core Features Only)
+
+1. **Download the script** and save it as `youtube_downloader.py`
+
+2. The script will automatically install `yt-dlp` when first run
+
+3. **Optionally install FFmpeg** for audio conversion and high-quality video merging (see Dependencies section)
+
+#### Enhanced Installation (With Rich TUI Features)
+
+For the best experience with beautiful tables, clipboard detection, and fuzzy search:
+
+```bash
+# Clone or download the repository
+git clone https://github.com/abxba0/YT-video-downloader.git
+cd YT-video-downloader
+
+# Install all dependencies including optional TUI features
+pip install -r requirements.txt
+
+# Run the script
+python3 youtube_downloader.py
+```
+
 ### Interactive Mode (Recommended)
 
 1. **Download the script** and save it as `youtube_downloader.py`

@@ -67,6 +67,10 @@ SUBPROCESS_TIMEOUT = 120
 # UI constants
 MENU_RETRY_DELAY = 1  # Seconds to wait before re-displaying menu on invalid input
 
+# Fuzzy search constants
+FUZZY_MATCH_THRESHOLD_SPECIAL = 70  # Threshold for matching special options (best, high, etc.)
+FUZZY_MATCH_THRESHOLD_FORMATS = 60  # Threshold for matching format IDs and properties
+
 # Check if yt-dlp is installed, if not try to install it
 def check_dependencies():
     yt_dlp_installed = False
@@ -352,6 +356,51 @@ def display_video_info(info, is_playlist=False):
     if not info:
         return
     
+    if RICH_AVAILABLE:
+        display_video_info_rich(info, is_playlist)
+    else:
+        display_video_info_standard(info, is_playlist)
+
+# Display video info using Rich
+def display_video_info_rich(info, is_playlist=False):
+    console = Console()
+    
+    # Handle playlist info
+    if is_playlist or info.get('_type') in ['playlist', 'multi_video']:
+        panel_content = []
+        panel_content.append(f"[bold cyan]Playlist:[/bold cyan] {info.get('title', 'Unknown')}")
+        panel_content.append(f"[bold yellow]Channel:[/bold yellow] {info.get('channel', info.get('uploader', 'Unknown'))}")
+        
+        entries_count = len(info.get('entries', []))
+        panel_content.append(f"[bold green]Number of videos:[/bold green] {entries_count}")
+        
+        if info.get('description'):
+            desc = info['description']
+            if len(desc) > 150:
+                desc = desc[:147] + "..."
+            panel_content.append(f"[bold]Description:[/bold] {desc}")
+        
+        console.print(Panel("\n".join(panel_content), title="📋 Playlist Information", border_style="cyan"))
+        return
+    
+    # Handle single video info
+    panel_content = []
+    panel_content.append(f"[bold cyan]Title:[/bold cyan] {info.get('title', 'Unknown')}")
+    panel_content.append(f"[bold yellow]Channel:[/bold yellow] {info.get('channel', 'Unknown')}")
+    panel_content.append(f"[bold green]Duration:[/bold green] {format_duration(info.get('duration', 0))}")
+    panel_content.append(f"[bold blue]Upload Date:[/bold blue] {info.get('upload_date', 'Unknown')}")
+    panel_content.append(f"[bold magenta]Views:[/bold magenta] {format_count(info.get('view_count', 0))}")
+    
+    if info.get('description'):
+        desc = info['description']
+        if len(desc) > 150:
+            desc = desc[:147] + "..."
+        panel_content.append(f"[bold]Description:[/bold] {desc}")
+    
+    console.print(Panel("\n".join(panel_content), title="📺 Video Information", border_style="cyan"))
+
+# Display video info using standard output
+def display_video_info_standard(info, is_playlist=False):
     # Handle playlist info
     if is_playlist or info.get('_type') in ['playlist', 'multi_video']:
         print("\n" + "="*80)
@@ -417,7 +466,7 @@ def fuzzy_search_format(query, all_formats, special_options=None):
     
     # First check if it's a special option
     special_match = process.extractOne(query, special_options, scorer=fuzz.ratio)
-    if special_match and special_match[1] >= 70:  # 70% match threshold
+    if special_match and special_match[1] >= FUZZY_MATCH_THRESHOLD_SPECIAL:
         return special_match[0]
     
     # Build searchable strings for each format
@@ -437,7 +486,7 @@ def fuzzy_search_format(query, all_formats, special_options=None):
     # Perform fuzzy search
     if searchable_formats:
         match = process.extractOne(query, [s[0] for s in searchable_formats], scorer=fuzz.partial_ratio)
-        if match and match[1] >= 60:  # 60% match threshold
+        if match and match[1] >= FUZZY_MATCH_THRESHOLD_FORMATS:
             # Find the format_id corresponding to the matched string
             for search_str, format_id in searchable_formats:
                 if search_str == match[0]:
@@ -1256,6 +1305,8 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
         
         # Try to get URL from clipboard
         clipboard_url = get_clipboard_url()
+        url = None  # Initialize to None explicitly
+        
         if clipboard_url:
             if RICH_AVAILABLE:
                 console = Console()
@@ -1269,6 +1320,7 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
                 if use_clipboard == 'y':
                     url = clipboard_url
         
+        # If URL not set from clipboard, ask for manual input
         if not url:
             url = input("\nEnter video URL (from any supported site): ").strip()
     
@@ -1366,7 +1418,10 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
             # Try fuzzy search if available and input doesn't match exactly
             if FUZZY_AVAILABLE and format_selection:
                 special_options = ['best', 'bestvideo', 'bestaudio', 'high', 'mp3', 'mp4']
-                if format_selection.lower() not in special_options and not any(f.get('format_id') == format_selection for f in all_formats):
+                # Create a set for O(1) lookup of format IDs
+                format_ids = {f.get('format_id') for f in all_formats}
+                
+                if format_selection.lower() not in special_options and format_selection not in format_ids:
                     fuzzy_result = fuzzy_search_format(format_selection, all_formats, special_options)
                     if fuzzy_result:
                         if RICH_AVAILABLE:
