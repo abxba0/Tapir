@@ -2,9 +2,11 @@
 """
 Comprehensive test suite for youtube_downloader.py
 
-This test suite provides 90%+ code coverage for the YouTube video downloader,
+This test suite provides extensive code coverage (83%) for the YouTube video downloader,
 testing all major functions including URL validation, format handling,
 video info extraction, download workflows, and utility functions.
+Note: The 17% uncovered code consists primarily of interactive UI paths,
+OS-specific installation prompts, and optional library import failures.
 """
 
 import pytest
@@ -1098,10 +1100,6 @@ class TestIsValidURL:
             
             result = yt.is_valid_url('https://youtube.com/watch?v=test')
             assert result is False
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--cov=youtube_downloader', '--cov-report=term-missing'])
 
 
 class TestMainFunction:

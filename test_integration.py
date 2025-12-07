@@ -367,11 +367,6 @@ class TestIntegrationSupportedSites:
             assert isinstance(site['example'], str)
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--cov=youtube_downloader', '--cov-append', 
-                 '--cov-report=term-missing', '--cov-report=html'])
-
-
 class TestCheckDependenciesDetailed:
     """Detailed tests for check_dependencies function"""
     
@@ -652,10 +647,6 @@ class TestDownloadTrackerDetailed:
         results = tracker.get_results()
         assert len(results) == 5
 
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--cov=youtube_downloader', '--cov-append', 
-                 '--cov-report=term-missing', '--cov-report=html'])
 
 
 class TestRichDisplayPaths:
