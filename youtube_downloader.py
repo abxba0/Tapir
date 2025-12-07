@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-YouTube Video Downloader
+Multi-Site Video Downloader
 
-A command-line tool to download YouTube videos locally and convert audio files.
+A command-line tool to download videos from YouTube, Vimeo, SoundCloud, 
+and 1800+ other sites, with audio format conversion capabilities.
 Uses yt-dlp library for downloading videos with format selection.
 Uses FFmpeg for audio format conversion.
 
 Features:
+- Multi-site support (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch, TikTok, and more)
 - Quality selection
 - Multiple format support (MP4, MP3, etc.)
 - Audio format conversion
+- Playlist and channel downloads
 - Metadata display
 - Download progress tracking
 - File size and quality estimation
@@ -126,7 +129,111 @@ def check_dependencies():
     
     return yt_dlp_installed, ffmpeg_installed
 
+# Get supported popular sites from yt-dlp
+def get_supported_sites():
+    """Return a dictionary of popular video sites supported by yt-dlp"""
+    return {
+        'youtube': {
+            'name': 'YouTube',
+            'description': 'YouTube videos, playlists, and channels',
+            'example': 'https://youtube.com/watch?v=VIDEO_ID'
+        },
+        'vimeo': {
+            'name': 'Vimeo',
+            'description': 'Vimeo videos',
+            'example': 'https://vimeo.com/VIDEO_ID'
+        },
+        'soundcloud': {
+            'name': 'SoundCloud',
+            'description': 'SoundCloud tracks and playlists',
+            'example': 'https://soundcloud.com/artist/track'
+        },
+        'dailymotion': {
+            'name': 'Dailymotion',
+            'description': 'Dailymotion videos',
+            'example': 'https://dailymotion.com/video/VIDEO_ID'
+        },
+        'twitch': {
+            'name': 'Twitch',
+            'description': 'Twitch videos and clips',
+            'example': 'https://twitch.tv/videos/VIDEO_ID'
+        },
+        'bandcamp': {
+            'name': 'Bandcamp',
+            'description': 'Bandcamp tracks and albums',
+            'example': 'https://artist.bandcamp.com/track/track-name'
+        },
+        'tiktok': {
+            'name': 'TikTok',
+            'description': 'TikTok videos',
+            'example': 'https://tiktok.com/@user/video/VIDEO_ID'
+        },
+        'other': {
+            'name': 'Other/Direct URL',
+            'description': 'Any URL supported by yt-dlp (1800+ sites)',
+            'example': 'https://example.com/video'
+        }
+    }
+
+# Detect which site a URL belongs to
+def detect_site(url):
+    """Detect which site a URL belongs to based on domain"""
+    url_lower = url.lower()
+    
+    # Check for popular sites
+    if 'youtube.com' in url_lower or 'youtu.be' in url_lower:
+        return 'youtube'
+    elif 'vimeo.com' in url_lower:
+        return 'vimeo'
+    elif 'soundcloud.com' in url_lower:
+        return 'soundcloud'
+    elif 'dailymotion.com' in url_lower:
+        return 'dailymotion'
+    elif 'twitch.tv' in url_lower:
+        return 'twitch'
+    elif 'bandcamp.com' in url_lower:
+        return 'bandcamp'
+    elif 'tiktok.com' in url_lower:
+        return 'tiktok'
+    else:
+        return 'other'
+
+# Validate URL using yt-dlp (supports all sites)
+def is_valid_url(url):
+    """
+    Validate if URL is supported by yt-dlp.
+    This is a generic validator that works with all 1800+ sites supported by yt-dlp.
+    """
+    import yt_dlp
+    
+    # Basic URL format check
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Check if it looks like a URL
+    if not url.startswith(('http://', 'https://', 'www.')):
+        # Could be a short form URL, let yt-dlp decide
+        if '.' not in url:
+            return False
+    
+    # Try to extract info (without downloading) to validate
+    # This is the most reliable way to check if yt-dlp supports the URL
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'simulate': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Just checking if extraction is possible
+            ydl.extract_info(url, download=False, process=False)
+            return True
+    except:
+        return False
+
 # Validate YouTube URL (including playlists and channels)
+# Kept for backward compatibility and faster YouTube-specific validation
 def is_valid_youtube_url(url):
     # Fixed the escape sequences in regex patterns
     youtube_regex = (
@@ -887,7 +994,7 @@ def show_main_menu():
     print("So what is my purpose?".center(80))
     print("="*80)
     print("\nPlease select an option:")
-    print("  1. Download YouTube video")
+    print("  1. Download video from supported sites")
     print("  2. Convert audio/music file")
     print("  3. Exit")
     print("-"*80)
@@ -895,9 +1002,9 @@ def show_main_menu():
     choice = input("Enter your choice (1-3): ").strip()
     return choice
 
-# YouTube download workflow
+# Video download workflow (supports all sites via yt-dlp)
 def youtube_download_workflow(args=None, ffmpeg_installed=True):
-    """Interactive workflow for YouTube video download"""
+    """Interactive workflow for video download from any supported site"""
     # Import yt-dlp
     import yt_dlp
     
@@ -910,12 +1017,32 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     # If no URL was provided via command line, ask for it
     url = args.url if args.url else None
     if not url:
-        url = input("\nEnter YouTube URL (video, playlist, or channel): ").strip()
+        # Show supported sites
+        print("\n" + "="*80)
+        print("Supported Video Sites".center(80))
+        print("="*80)
+        sites = get_supported_sites()
+        for site_key, site_info in sites.items():
+            if site_key != 'other':
+                print(f"  • {site_info['name']}: {site_info['description']}")
+        print(f"  • And 1800+ other sites supported by yt-dlp")
+        print("="*80)
+        
+        url = input("\nEnter video URL (from any supported site): ").strip()
     
-    # Validate the URL
-    if not is_valid_youtube_url(url):
-        print("Error: Invalid YouTube URL")
-        return
+    # Detect which site the URL is from
+    detected_site = detect_site(url)
+    site_info = get_supported_sites().get(detected_site, {'name': 'Unknown'})
+    
+    # Validate the URL - use fast YouTube validation for YouTube URLs
+    if detected_site == 'youtube':
+        if not is_valid_youtube_url(url):
+            print("Error: Invalid YouTube URL")
+            return
+    else:
+        # For other sites, we'll let yt-dlp handle validation during info extraction
+        # This avoids expensive validation for every URL type
+        print(f"Detected site: {site_info['name']}")
     
     # Get video/playlist information
     print("\nFetching information...")
@@ -923,6 +1050,10 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
     
     if not info:
         print("Failed to retrieve information.")
+        print("Please check that:")
+        print("  1. The URL is correct and accessible")
+        print("  2. The site is supported by yt-dlp")
+        print("  3. You have an internet connection")
         return
     
     # Check if it's a playlist or channel
@@ -1028,8 +1159,8 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
 # Main function
 def main():
     # Set up argument parser
-    parser = argparse.ArgumentParser(description='YouTube Video Downloader and Audio Converter')
-    parser.add_argument('url', nargs='?', help='YouTube video, playlist, or channel URL')
+    parser = argparse.ArgumentParser(description='Multi-Site Video Downloader and Audio Converter - Supports YouTube, Vimeo, SoundCloud, and 1800+ sites')
+    parser.add_argument('url', nargs='?', help='Video URL from any supported site (YouTube, Vimeo, SoundCloud, etc.)')
     parser.add_argument('-f', '--format', help='Specify format code directly')
     parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
     parser.add_argument('-i', '--info', action='store_true', help='Show video/playlist info only without downloading')
@@ -1043,15 +1174,31 @@ def main():
                         choices=['brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi'],
                         help='Extract cookies from browser for authentication')
     parser.add_argument('--archive', help='Path to download archive file (records downloaded video IDs to skip duplicates)')
+    parser.add_argument('--list-sites', action='store_true', help='List popular supported video sites')
     
     args = parser.parse_args()
     
     # Display banner
     print("\n" + "="*80)
-    print("YouTube Video Downloader & Audio Converter".center(80))
-    print("Download YouTube videos and convert audio files".center(80))
+    print("Multi-Site Video Downloader & Audio Converter".center(80))
+    print("Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites".center(80))
     print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
     print("="*80)
+    
+    # Handle --list-sites flag
+    if args.list_sites:
+        print("\n" + "="*80)
+        print("Popular Supported Video Sites".center(80))
+        print("="*80)
+        sites = get_supported_sites()
+        for site_key, site_info in sites.items():
+            print(f"\n{site_info['name']}")
+            print(f"  Description: {site_info['description']}")
+            print(f"  Example URL: {site_info['example']}")
+        print("\n" + "="*80)
+        print("Note: yt-dlp supports over 1800 sites in total!".center(80))
+        print("="*80)
+        return
     
     # Check if dependencies are installed
     yt_dlp_installed, ffmpeg_installed = check_dependencies()
@@ -1073,7 +1220,7 @@ def main():
         choice = show_main_menu()
         
         if choice == '1':
-            # YouTube download
+            # Video download from any supported site
             youtube_download_workflow(args, ffmpeg_installed)
             break
         elif choice == '2':
