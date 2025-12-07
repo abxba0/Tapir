@@ -1,22 +1,41 @@
-# YouTube Video Downloader & Audio Converter
+# Multi-Site Video Downloader & Audio Converter
 
-A command-line tool to download YouTube videos locally and convert audio files between different formats with quality selection and format conversion options.
+A command-line tool to download videos from **YouTube, Vimeo, SoundCloud, and 1800+ other sites** locally and convert audio files between different formats with quality selection and format conversion options.
 
 ## Features
 
-- **YouTube Video Download**: Download YouTube videos with quality selection
-- **Playlist & Channel Download**: Download entire playlists or channels with automatic ordering
-- **Incremental Sync**: Skip already-downloaded videos for efficient playlist updates
-- **Cookies Support**: Access age-restricted and region-limited content using cookies
-- **Audio Format Conversion**: Convert audio files between popular formats (MP3, M4A, WAV, FLAC, OGG, AAC)
-- **Interactive Menu**: Choose between video download and audio conversion
-- **Quality Selection**: Choose from available video qualities and formats
-- **Format Support**: Download as MP4, convert to MP3, or use original formats
-- **Size & Quality Estimation**: View estimated file sizes and quality before conversion
-- **Metadata Display**: View video information before downloading
-- **Progress Tracking**: Real-time download progress with speed and ETA
-- **Auto-Install**: Automatically attempts to install required dependencies
-- **Cross-Platform**: Works on Windows, macOS, and Linux
+- **🌐 Multi-Site Support**: Download from YouTube, Vimeo, SoundCloud, Dailymotion, Twitch, TikTok, Bandcamp, and 1800+ sites
+- **📺 Video Download**: Download videos with quality selection from any supported site
+- **📝 Playlist & Channel Download**: Download entire playlists or channels with automatic ordering
+- **🔄 Incremental Sync**: Skip already-downloaded videos for efficient playlist updates
+- **🍪 Cookies Support**: Access age-restricted and region-limited content using cookies
+- **🎵 Audio Format Conversion**: Convert audio files between popular formats (MP3, M4A, WAV, FLAC, OGG, AAC)
+- **🖥️ Interactive Menu**: Choose between video download and audio conversion
+- **⚙️ Quality Selection**: Choose from available video qualities and formats
+- **📦 Format Support**: Download as MP4, convert to MP3, or use original formats
+- **📊 Size & Quality Estimation**: View estimated file sizes and quality before conversion
+- **ℹ️ Metadata Display**: View video information before downloading
+- **⏱️ Progress Tracking**: Real-time download progress with speed and ETA
+- **🔧 Auto-Install**: Automatically attempts to install required dependencies
+- **💻 Cross-Platform**: Works on Windows, macOS, and Linux
+
+## Supported Sites
+
+The tool supports **1800+ video sites** through yt-dlp, including:
+
+- **YouTube** - Videos, playlists, channels, shorts
+- **Vimeo** - Videos and collections
+- **SoundCloud** - Tracks and playlists
+- **Dailymotion** - Videos
+- **Twitch** - Videos, clips, and VODs
+- **Bandcamp** - Tracks and albums
+- **TikTok** - Videos
+- **And many more!** - Facebook, Instagram, Twitter/X, Reddit, and hundreds of others
+
+To see a list of popular supported sites, run:
+```bash
+python3 youtube_downloader.py --list-sites
+```
 
 ## Quick Start
 
@@ -30,18 +49,19 @@ A command-line tool to download YouTube videos locally and convert audio files b
    ```
 
 3. **Choose your operation**:
-   - Press **1** to download a YouTube video
+   - Press **1** to download a video from any supported site
    - Press **2** to convert an audio file
    - Press **3** to exit
 
-### YouTube Video Download
+### Video Download (Any Site)
 
 When you select option 1:
-1. Enter a YouTube URL (video, playlist, or channel) when prompted
-2. View video/playlist information and available formats
-3. Select your preferred format
-4. Videos will be downloaded to `~/youtube_downloads/`
-5. For playlists:
+1. View the list of supported sites
+2. Enter a video URL from any supported site when prompted
+3. View video/playlist information and available formats
+4. Select your preferred format
+5. Videos will be downloaded to `~/youtube_downloads/`
+6. For playlists:
    - Videos are numbered in playlist order (e.g., `001 - Video Title.mp4`)
    - Already downloaded videos are automatically skipped
    - Perfect for keeping playlists in sync
@@ -65,24 +85,45 @@ When you select option 2:
 
 ## Command Line Usage
 
-### YouTube Video Download
+### Video Download from Any Site
 
 ```bash
-# Basic usage - single video
+# List all supported sites
+python3 youtube_downloader.py --list-sites
+
+# Basic usage - YouTube video
 python3 youtube_downloader.py "https://youtube.com/watch?v=VIDEO_ID"
 
-# Download a playlist
+# Download from Vimeo
+python3 youtube_downloader.py "https://vimeo.com/VIDEO_ID"
+
+# Download from SoundCloud
+python3 youtube_downloader.py "https://soundcloud.com/artist/track"
+
+# Download from Dailymotion
+python3 youtube_downloader.py "https://dailymotion.com/video/VIDEO_ID"
+
+# Download from TikTok
+python3 youtube_downloader.py "https://tiktok.com/@user/video/VIDEO_ID"
+
+# Download from Twitch
+python3 youtube_downloader.py "https://twitch.tv/videos/VIDEO_ID"
+
+# Download from Bandcamp
+python3 youtube_downloader.py "https://artist.bandcamp.com/track/track-name"
+
+# Download a YouTube playlist
 python3 youtube_downloader.py "https://youtube.com/playlist?list=PLAYLIST_ID"
 
-# Download from a channel
+# Download from a YouTube channel
 python3 youtube_downloader.py "https://youtube.com/channel/CHANNEL_ID"
 python3 youtube_downloader.py "https://youtube.com/@username"
 
-# Convert to MP3
-python3 youtube_downloader.py --mp3 "https://youtube.com/watch?v=VIDEO_ID"
+# Convert to MP3 (works with any site)
+python3 youtube_downloader.py --mp3 "https://vimeo.com/VIDEO_ID"
 
-# Download as MP4
-python3 youtube_downloader.py --mp4 "https://youtube.com/watch?v=VIDEO_ID"
+# Download as MP4 (works with any site)
+python3 youtube_downloader.py --mp4 "https://soundcloud.com/artist/track"
 
 # High quality (best video + audio merged)
 python3 youtube_downloader.py --high "https://youtube.com/watch?v=VIDEO_ID"
@@ -195,7 +236,9 @@ python3 youtube_downloader.py --cookies-from-browser firefox "VIDEO_URL"
 
 ## Format Options
 
-### YouTube Download Formats
+### Video Download Formats
+
+These format options work with all supported sites:
 
 - `best` - Best quality video+audio combination
 - `bestvideo` - Best video quality only
@@ -233,4 +276,4 @@ Videos are saved to `~/youtube_downloads/` by default. You can specify a custom 
 
 ## Disclaimer
 
-This tool is for personal and educational use only. Please respect copyright laws and YouTube's Terms of Service. Only download videos you have permission to download.
+This tool is for personal and educational use only. Please respect copyright laws and the Terms of Service of the sites you download from. Only download videos you have permission to download.
