@@ -32,6 +32,10 @@ import shlex
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+from queue import Queue
+import threading
 
 # Try to import TUI libraries (optional)
 try:
@@ -58,7 +62,7 @@ except ImportError:
     FUZZY_AVAILABLE = False
 
 # Version information
-VERSION = "3.0.0"
+VERSION = "4.0.0"
 VERSION_DATE = "2025-12-07"
 
 # Timeout for subprocess calls (in seconds)
@@ -70,6 +74,10 @@ MENU_RETRY_DELAY = 1  # Seconds to wait before re-displaying menu on invalid inp
 # Fuzzy search constants
 FUZZY_MATCH_THRESHOLD_SPECIAL = 70  # Threshold for matching special options (best, high, etc.)
 FUZZY_MATCH_THRESHOLD_FORMATS = 60  # Threshold for matching format IDs and properties
+
+# Parallelization constants
+DEFAULT_MAX_WORKERS = 3  # Default number of concurrent downloads
+MAX_WORKERS_LIMIT = 10   # Maximum allowed concurrent downloads
 
 # Check if yt-dlp is installed, if not try to install it
 def check_dependencies():
@@ -1264,6 +1272,218 @@ def audio_conversion_workflow():
     else:
         print("\n✗ Audio conversion failed.")
 
+# Thread-safe download result tracking
+class DownloadTracker:
+    """Thread-safe tracker for download results in parallel operations"""
+    def __init__(self):
+        self.lock = Lock()
+        self.completed = 0
+        self.failed = 0
+        self.total = 0
+        self.results = []
+    
+    def add_result(self, url, success, message=""):
+        """Add a download result"""
+        with self.lock:
+            self.completed += 1
+            if success:
+                self.results.append({'url': url, 'success': True, 'message': message})
+            else:
+                self.failed += 1
+                self.results.append({'url': url, 'success': False, 'message': message})
+    
+    def set_total(self, total):
+        """Set the total number of downloads"""
+        with self.lock:
+            self.total = total
+    
+    def get_status(self):
+        """Get current status"""
+        with self.lock:
+            return {
+                'completed': self.completed,
+                'failed': self.failed,
+                'total': self.total,
+                'success': self.completed - self.failed
+            }
+    
+    def get_results(self):
+        """Get all results"""
+        with self.lock:
+            return self.results.copy()
+
+# Read URLs from various sources
+def read_urls_from_file(file_path):
+    """Read URLs from a text file, one URL per line"""
+    urls = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith('#'):
+                    urls.append(line)
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+        return None
+    except Exception as e:
+        print(f"Error reading file '{file_path}': {e}")
+        return None
+    
+    return urls
+
+def read_urls_from_stdin():
+    """Read URLs from standard input, one URL per line"""
+    print("Enter URLs (one per line). Press Ctrl+D (Unix) or Ctrl+Z (Windows) when done:")
+    urls = []
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            # Skip empty lines and comments
+            if line and not line.startswith('#'):
+                urls.append(line)
+    except KeyboardInterrupt:
+        print("\nInput cancelled.")
+        return None
+    
+    return urls
+
+# Download a single video in parallel context
+def download_video_parallel(url, format_selection, output_dir, ffmpeg_available, 
+                           cookies_file, cookies_from_browser, archive_file, tracker, index, total):
+    """
+    Download a single video with parallel-safe progress tracking.
+    
+    Args:
+        url: Video URL to download
+        format_selection: Format selection string
+        output_dir: Output directory path
+        ffmpeg_available: Whether FFmpeg is available
+        cookies_file: Path to cookies file (optional)
+        cookies_from_browser: Browser name for cookie extraction (optional)
+        archive_file: Path to archive file (optional)
+        tracker: DownloadTracker instance for thread-safe result tracking
+        index: Current video index (1-based)
+        total: Total number of videos
+    
+    Returns:
+        Tuple of (url, success, message)
+    """
+    import yt_dlp
+    
+    try:
+        # Thread-safe print with index information
+        print(f"\n[{index}/{total}] Starting download: {url}")
+        
+        # Get video info first to show what we're downloading
+        info = get_video_info(url, cookies_file, cookies_from_browser)
+        if info:
+            title = info.get('title', 'Unknown')
+            print(f"[{index}/{total}] Downloading: {title}")
+        
+        # Perform the download
+        output_path, success = download_video(
+            url, format_selection, output_dir, ffmpeg_available,
+            cookies_file, cookies_from_browser, False, archive_file
+        )
+        
+        if success:
+            message = f"Downloaded to {output_path}"
+            print(f"[{index}/{total}] ✓ Completed: {url}")
+            tracker.add_result(url, True, message)
+            return (url, True, message)
+        else:
+            message = f"Failed to download"
+            print(f"[{index}/{total}] ✗ Failed: {url}")
+            tracker.add_result(url, False, message)
+            return (url, False, message)
+            
+    except Exception as e:
+        message = f"Error: {str(e)}"
+        print(f"[{index}/{total}] ✗ Error downloading {url}: {e}")
+        tracker.add_result(url, False, message)
+        return (url, False, message)
+
+# Parallel download workflow
+def parallel_download_workflow(urls, format_selection, output_dir, ffmpeg_available,
+                               cookies_file, cookies_from_browser, archive_file, max_workers):
+    """
+    Download multiple videos in parallel.
+    
+    Args:
+        urls: List of video URLs to download
+        format_selection: Format selection string
+        output_dir: Output directory path
+        ffmpeg_available: Whether FFmpeg is available
+        cookies_file: Path to cookies file (optional)
+        cookies_from_browser: Browser name for cookie extraction (optional)
+        archive_file: Path to archive file (optional)
+        max_workers: Maximum number of concurrent downloads
+    """
+    if not urls:
+        print("No URLs provided for download.")
+        return
+    
+    print("\n" + "="*80)
+    print(f"Parallel Download - {len(urls)} videos with {max_workers} workers".center(80))
+    print("="*80)
+    
+    # Initialize tracker
+    tracker = DownloadTracker()
+    tracker.set_total(len(urls))
+    
+    # Start time for statistics
+    start_time = time.time()
+    
+    # Use ThreadPoolExecutor for parallel downloads
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all download tasks
+        futures = []
+        for idx, url in enumerate(urls, 1):
+            future = executor.submit(
+                download_video_parallel,
+                url, format_selection, output_dir, ffmpeg_available,
+                cookies_file, cookies_from_browser, archive_file,
+                tracker, idx, len(urls)
+            )
+            futures.append(future)
+        
+        # Wait for all downloads to complete
+        print(f"\nDownloading {len(urls)} videos with {max_workers} concurrent workers...")
+        print("-"*80)
+        
+        for future in as_completed(futures):
+            try:
+                # Result is already tracked in download_video_parallel
+                future.result()
+            except Exception as e:
+                print(f"Unexpected error in download task: {e}")
+    
+    # Calculate statistics
+    elapsed_time = time.time() - start_time
+    status = tracker.get_status()
+    
+    # Display summary
+    print("\n" + "="*80)
+    print("Download Summary".center(80))
+    print("="*80)
+    print(f"Total videos: {status['total']}")
+    print(f"Successfully downloaded: {status['success']}")
+    print(f"Failed: {status['failed']}")
+    print(f"Time elapsed: {format_duration(int(elapsed_time))}")
+    print(f"Average time per video: {elapsed_time / len(urls):.2f} seconds")
+    print("="*80)
+    
+    # Display detailed results if there were failures
+    if status['failed'] > 0:
+        print("\nFailed downloads:")
+        results = tracker.get_results()
+        for result in results:
+            if not result['success']:
+                print(f"  ✗ {result['url']}")
+                if result['message']:
+                    print(f"    Reason: {result['message']}")
+
 # Main menu for choosing between video download and audio conversion
 def show_main_menu():
     """Display main menu and get user choice"""
@@ -1291,8 +1511,18 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
                                   format=None, info=False, output='youtube_downloads',
                                   cookies=None, cookies_from_browser=None, archive=None)
     
-    # If no URL was provided via command line, ask for it
+    # Handle URL - convert to string if it's a list with one element
     url = args.url if args.url else None
+    if isinstance(url, list):
+        if len(url) == 1:
+            url = url[0]
+        elif len(url) > 1:
+            print("Error: Multiple URLs detected. Use --parallel for parallel downloads.")
+            return
+        else:
+            url = None
+    
+    # If no URL was provided via command line, ask for it
     if not url:
         # Show supported sites
         print("\n" + "="*80)
@@ -1492,7 +1722,7 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Multi-Site Video Downloader and Audio Converter - Supports YouTube, Vimeo, SoundCloud, and 1800+ sites')
-    parser.add_argument('url', nargs='?', help='Video URL from any supported site (YouTube, Vimeo, SoundCloud, etc.)')
+    parser.add_argument('url', nargs='*', help='Video URL(s) from any supported site (YouTube, Vimeo, SoundCloud, etc.). Can provide multiple URLs for parallel download.')
     parser.add_argument('-f', '--format', help='Specify format code directly')
     parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
     parser.add_argument('-i', '--info', action='store_true', help='Show video/playlist info only without downloading')
@@ -1507,6 +1737,13 @@ def main():
                         help='Extract cookies from browser for authentication')
     parser.add_argument('--archive', help='Path to download archive file (records downloaded video IDs to skip duplicates)')
     parser.add_argument('--list-sites', action='store_true', help='List popular supported video sites')
+    
+    # Parallel download options
+    parser.add_argument('--batch-file', help='File containing URLs to download (one per line)')
+    parser.add_argument('--stdin', action='store_true', help='Read URLs from standard input')
+    parser.add_argument('--max-workers', type=int, default=DEFAULT_MAX_WORKERS, 
+                        help=f'Maximum number of concurrent downloads (default: {DEFAULT_MAX_WORKERS}, max: {MAX_WORKERS_LIMIT})')
+    parser.add_argument('--parallel', action='store_true', help='Enable parallel downloads for multiple URLs')
     
     args = parser.parse_args()
     
@@ -1551,8 +1788,66 @@ def main():
         audio_conversion_workflow()
         return
     
-    # If URL is provided via command line, go directly to download
+    # Collect URLs from various sources
+    urls = []
+    
+    # 1. From command line arguments
     if args.url:
+        urls.extend(args.url)
+    
+    # 2. From batch file
+    if args.batch_file:
+        batch_urls = read_urls_from_file(args.batch_file)
+        if batch_urls is None:
+            return
+        urls.extend(batch_urls)
+    
+    # 3. From stdin
+    if args.stdin:
+        stdin_urls = read_urls_from_stdin()
+        if stdin_urls is None:
+            return
+        urls.extend(stdin_urls)
+    
+    # Validate max_workers
+    if args.max_workers < 1:
+        print(f"Error: --max-workers must be at least 1")
+        return
+    if args.max_workers > MAX_WORKERS_LIMIT:
+        print(f"Warning: --max-workers exceeds limit of {MAX_WORKERS_LIMIT}, using {MAX_WORKERS_LIMIT}")
+        args.max_workers = MAX_WORKERS_LIMIT
+    
+    # Handle parallel downloads for multiple URLs
+    if len(urls) > 1 or args.parallel:
+        if len(urls) == 0:
+            print("Error: No URLs provided for parallel download.")
+            print("Use --batch-file, --stdin, or provide multiple URLs as arguments.")
+            return
+        
+        # Determine format selection for parallel downloads
+        format_selection = None
+        if args.mp3:
+            format_selection = 'mp3'
+        elif args.mp4:
+            format_selection = 'mp4'
+        elif args.high:
+            format_selection = 'high'
+        elif args.format:
+            format_selection = args.format
+        else:
+            format_selection = 'best'
+        
+        # Run parallel download workflow
+        parallel_download_workflow(
+            urls, format_selection, args.output, ffmpeg_installed,
+            args.cookies, args.cookies_from_browser, args.archive, args.max_workers
+        )
+        return
+    
+    # Single URL or interactive mode
+    if len(urls) == 1:
+        # Create args-like object with the single URL
+        args.url = urls[0]
         youtube_download_workflow(args, ffmpeg_installed)
         return
     
