@@ -475,7 +475,7 @@ def fuzzy_search_format(query, all_formats, special_options=None):
         format_id = f.get('format_id', '')
         ext = f.get('ext', '')
         height = f.get('height', 0)
-        resolution = f"{height}p" if height else ""
+        resolution = f"{height}p" if height and height > 0 else ""
         vcodec = f.get('vcodec', '')
         acodec = f.get('acodec', '')
         
@@ -540,7 +540,8 @@ def display_formats_rich(info, ffmpeg_available=True):
         for f in combined_formats:
             format_id = f.get('format_id', 'N/A')
             ext = f.get('ext', 'N/A')
-            resolution = f"{f.get('height', 'N/A')}p"
+            height = f.get('height')
+            resolution = f"{height}p" if height and height > 0 else "N/A"
             
             filesize = f.get('filesize') or f.get('filesize_approx')
             filesize_str = format_size(filesize) if filesize else "Unknown"
@@ -566,7 +567,8 @@ def display_formats_rich(info, ffmpeg_available=True):
         for f in video_formats:
             format_id = f.get('format_id', 'N/A')
             ext = f.get('ext', 'N/A')
-            resolution = f"{f.get('height', 'N/A')}p"
+            height = f.get('height')
+            resolution = f"{height}p" if height and height > 0 else "N/A"
             
             filesize = f.get('filesize') or f.get('filesize_approx')
             filesize_str = format_size(filesize) if filesize else "Unknown"
@@ -1512,10 +1514,10 @@ def main():
     if RICH_AVAILABLE:
         console = Console()
         console.print("\n" + "="*80)
-        console.print("[bold cyan]Multi-Site Video Downloader & Audio Converter[/bold cyan]".center(90))
-        console.print("[yellow]Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites[/yellow]".center(90))
-        console.print(f"[green]Version {VERSION} - Last updated: {VERSION_DATE}[/green]".center(90))
-        console.print("[dim]✨ Rich TUI Mode Enabled ✨[/dim]".center(90))
+        console.print("[bold cyan]Multi-Site Video Downloader & Audio Converter[/bold cyan]", justify="center")
+        console.print("[yellow]Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites[/yellow]", justify="center")
+        console.print(f"[green]Version {VERSION} - Last updated: {VERSION_DATE}[/green]", justify="center")
+        console.print("[dim]✨ Rich TUI Mode Enabled ✨[/dim]", justify="center")
         console.print("="*80 + "\n")
     else:
         print("\n" + "="*80)
