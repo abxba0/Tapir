@@ -1512,8 +1512,9 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
                                   format=None, info=False, output='youtube_downloads',
                                   cookies=None, cookies_from_browser=None, archive=None)
     
-    # If no URL was provided via command line, ask for it
-    # Note: URL should be a string at this point (handled by main())
+    # Get URL from args
+    # Note: When called from main() with a single URL, args.url is a string.
+    # For interactive mode, args.url may be None.
     url = args.url if args.url else None
     if not url:
         # Show supported sites
