@@ -47,6 +47,32 @@ python3 youtube_downloader.py --list-sites
 
 ### Installation
 
+#### 🐳 Docker Installation (Recommended)
+
+The easiest and most consistent way to run the application:
+
+```bash
+# Clone the repository
+git clone https://github.com/abxba0/YT-video-downloader.git
+cd YT-video-downloader
+
+# Build the Docker image
+docker build -t yt-video-downloader:latest .
+
+# Download a video
+docker run --rm -v $(pwd)/downloads:/downloads yt-video-downloader:latest \
+  "https://youtube.com/watch?v=VIDEO_ID" --mp3
+```
+
+**Benefits:**
+- ✅ Lightweight Alpine-based image
+- ✅ FFmpeg pre-installed
+- ✅ All dependencies included
+- ✅ Consistent environment across all platforms
+- ✅ No system-wide installation required
+
+For detailed Docker usage, see [DOCKER.md](DOCKER.md).
+
 #### Basic Installation (Core Features Only)
 
 1. **Download the script** and save it as `youtube_downloader.py`
@@ -116,6 +142,33 @@ When you select option 2:
 5. Confirm and convert
 
 ## Command Line Usage
+
+### 🐳 Docker Usage
+
+Docker provides the easiest and most reliable way to run the application:
+
+```bash
+# Download a video
+docker run --rm -v $(pwd)/downloads:/downloads yt-video-downloader:latest \
+  "https://youtube.com/watch?v=VIDEO_ID"
+
+# Convert to MP3
+docker run --rm -v $(pwd)/downloads:/downloads yt-video-downloader:latest \
+  "https://youtube.com/watch?v=VIDEO_ID" --mp3
+
+# Download high quality
+docker run --rm -v $(pwd)/downloads:/downloads yt-video-downloader:latest \
+  "https://youtube.com/watch?v=VIDEO_ID" --high
+
+# Download playlist
+docker run --rm -v $(pwd)/downloads:/downloads yt-video-downloader:latest \
+  "https://youtube.com/playlist?list=PLAYLIST_ID"
+
+# Using Docker Compose
+docker-compose run --rm yt-downloader "https://youtube.com/watch?v=VIDEO_ID" --mp3
+```
+
+**See [DOCKER.md](DOCKER.md) for complete Docker documentation.**
 
 ### Video Download from Any Site
 
