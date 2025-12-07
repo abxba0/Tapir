@@ -9,6 +9,8 @@ Uses FFmpeg for audio format conversion.
 
 Features:
 - Multi-site support (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch, TikTok, and more)
+- Parallel downloads with configurable worker pools
+- Bulk processing from files or standard input
 - Quality selection
 - Multiple format support (MP4, MP3, etc.)
 - Audio format conversion
