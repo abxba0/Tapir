@@ -1,0 +1,19 @@
+services:
+  yt-downloader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yt-video-downloader:latest
+    container_name: yt-downloader
+    volumes:
+      # Mount host directory for downloads
+      - ./downloads:/downloads
+      # Optional: Mount cookies file if needed for authentication
+      # - ./cookies.txt:/app/cookies.txt:ro
+    environment:
+      # Set timezone (optional)
+      - TZ=UTC
+    # Override CMD to run interactive mode
+    # Example usage: docker-compose run --rm yt-downloader "https://youtube.com/watch?v=VIDEO_ID" --mp3
+    stdin_open: true
+    tty: true
