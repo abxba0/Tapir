@@ -1,0 +1,33 @@
+{
+  "name": "yt-video-downloader-tui",
+  "version": "5.0.0",
+  "description": "Multi-Site Video Downloader, Audio Converter & Transcriber - Terminal UI built with OpenTUI",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "youtube",
+    "downloader",
+    "video",
+    "audio",
+    "converter",
+    "transcription",
+    "whisper",
+    "tui",
+    "terminal",
+    "opentui"
+  ],
+  "license": "MIT"
+}
