@@ -24,11 +24,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 FROM python:3.12-alpine
 
 # Build argument for version (can be overridden during build)
-ARG VERSION=4.0.0
+ARG VERSION=5.0.0
 
 # Set metadata labels
 LABEL maintainer="YT-video-downloader"
-LABEL description="Multi-Site Video Downloader & Audio Converter supporting YouTube, Vimeo, SoundCloud, and 1800+ sites"
+LABEL description="Multi-Site Video Downloader, Audio Converter & Transcriber supporting YouTube, Vimeo, SoundCloud, and 1800+ sites"
 LABEL version="${VERSION}"
 
 # Install runtime dependencies only

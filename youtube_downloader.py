@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Multi-Site Video Downloader
+Multi-Site Video Downloader & Transcriber
 
-A command-line tool to download videos from YouTube, Vimeo, SoundCloud, 
-and 1800+ other sites, with audio format conversion capabilities.
+A command-line tool to download videos from YouTube, Vimeo, SoundCloud,
+and 1800+ other sites, with audio format conversion and media transcription capabilities.
 Uses yt-dlp library for downloading videos with format selection.
 Uses FFmpeg for audio format conversion.
+Uses OpenAI Whisper for speech-to-text transcription.
 
 Features:
 - Multi-site support (YouTube, Vimeo, SoundCloud, Dailymotion, Twitch, TikTok, and more)
@@ -18,6 +19,10 @@ Features:
 - Metadata display
 - Download progress tracking
 - File size and quality estimation
+- Media transcription from URLs (YouTube, Instagram, etc.) or local files
+- Subtitle extraction from online videos when available
+- Speech-to-text using OpenAI Whisper with multiple model sizes
+- Transcription output in TXT, SRT, and VTT formats
 - Fully offline functionality after initial setup
 """
 
@@ -63,9 +68,15 @@ try:
 except ImportError:
     FUZZY_AVAILABLE = False
 
+try:
+    import whisper
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
+
 # Version information
-VERSION = "4.0.0"
-VERSION_DATE = "2025-12-07"
+VERSION = "5.0.0"
+VERSION_DATE = "2026-01-31"
 
 # Timeout for subprocess calls (in seconds)
 SUBPROCESS_TIMEOUT = 120
@@ -1107,6 +1118,733 @@ def convert_audio_file(input_file, output_format, bitrate=None):
         print(f"\nConversion error: {e}")
         return False
 
+# =============================================================================
+# TRANSCRIPTION FEATURE
+# =============================================================================
+
+# Whisper model sizes with descriptions
+WHISPER_MODELS = {
+    'tiny': {
+        'name': 'Tiny',
+        'description': 'Fastest, lowest accuracy (~1GB VRAM)',
+        'size_mb': 75
+    },
+    'base': {
+        'name': 'Base',
+        'description': 'Fast with decent accuracy (~1GB VRAM)',
+        'size_mb': 142
+    },
+    'small': {
+        'name': 'Small',
+        'description': 'Good balance of speed and accuracy (~2GB VRAM)',
+        'size_mb': 466
+    },
+    'medium': {
+        'name': 'Medium',
+        'description': 'High accuracy, slower (~5GB VRAM)',
+        'size_mb': 1500
+    },
+    'large': {
+        'name': 'Large',
+        'description': 'Best accuracy, slowest (~10GB VRAM)',
+        'size_mb': 2900
+    }
+}
+
+# Supported transcription output formats
+TRANSCRIPTION_FORMATS = ['txt', 'srt', 'vtt']
+
+# Supported local media extensions for transcription
+SUPPORTED_MEDIA_EXTENSIONS = {
+    'audio': ['.mp3', '.wav', '.flac', '.m4a', '.ogg', '.aac', '.wma', '.opus'],
+    'video': ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.ts']
+}
+
+
+def is_local_media_file(path):
+    """Check if the given path is a local audio or video file"""
+    if not os.path.isfile(path):
+        return False
+    ext = os.path.splitext(path)[1].lower()
+    all_extensions = SUPPORTED_MEDIA_EXTENSIONS['audio'] + SUPPORTED_MEDIA_EXTENSIONS['video']
+    return ext in all_extensions
+
+
+def extract_subtitles_from_url(url, output_dir, cookies_file=None, cookies_from_browser=None, language='en'):
+    """
+    Try to extract existing subtitles/captions from a video URL using yt-dlp.
+
+    This is the fastest method as it doesn't require audio processing.
+    Works best with YouTube (auto-generated captions) and other platforms with subtitles.
+
+    Returns:
+        tuple: (subtitle_text, subtitle_file_path) or (None, None) if no subtitles found
+    """
+    import yt_dlp
+
+    safe_output_dir = get_download_directory(output_dir)
+
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitleslangs': [language, f'{language}.*'],
+        'subtitlesformat': 'srt/vtt/best',
+        'outtmpl': os.path.join(safe_output_dir, '%(title)s.%(ext)s'),
+    }
+
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+    elif cookies_from_browser:
+        ydl_opts['cookiesfrombrowser'] = (cookies_from_browser,)
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+            if not info:
+                return None, None
+
+            title = info.get('title', 'transcription')
+
+            # Check for available subtitles
+            subtitles = info.get('subtitles', {})
+            auto_captions = info.get('automatic_captions', {})
+
+            # Prefer manual subtitles over auto-generated
+            available_subs = {}
+            for lang_key, subs_list in subtitles.items():
+                if lang_key.startswith(language):
+                    available_subs[lang_key] = subs_list
+
+            # Fallback to auto-captions
+            if not available_subs:
+                for lang_key, subs_list in auto_captions.items():
+                    if lang_key.startswith(language):
+                        available_subs[lang_key] = subs_list
+
+            if not available_subs:
+                return None, None
+
+            # Pick the first matching language
+            lang_key = list(available_subs.keys())[0]
+            subs_list = available_subs[lang_key]
+
+            # Find the best subtitle format (prefer srt, then vtt)
+            sub_url = None
+            sub_ext = 'srt'
+            for sub_entry in subs_list:
+                if sub_entry.get('ext') == 'srt':
+                    sub_url = sub_entry.get('url')
+                    sub_ext = 'srt'
+                    break
+                elif sub_entry.get('ext') == 'vtt':
+                    sub_url = sub_entry.get('url')
+                    sub_ext = 'vtt'
+
+            if not sub_url and subs_list:
+                sub_url = subs_list[0].get('url')
+                sub_ext = subs_list[0].get('ext', 'srt')
+
+            if not sub_url:
+                return None, None
+
+            # Download the subtitle file
+            print(f"  Found {lang_key} subtitles, downloading...")
+
+            # Use yt-dlp to download subtitles properly
+            dl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+                'subtitleslangs': [lang_key],
+                'subtitlesformat': sub_ext,
+                'outtmpl': os.path.join(safe_output_dir, '%(title)s.%(ext)s'),
+            }
+
+            if cookies_file:
+                dl_opts['cookiefile'] = cookies_file
+            elif cookies_from_browser:
+                dl_opts['cookiesfrombrowser'] = (cookies_from_browser,)
+
+            with yt_dlp.YoutubeDL(dl_opts) as ydl2:
+                ydl2.download([url])
+
+            # Find the downloaded subtitle file
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
+            possible_files = [
+                os.path.join(safe_output_dir, f"{safe_title}.{lang_key}.{sub_ext}"),
+                os.path.join(safe_output_dir, f"{safe_title}.{language}.{sub_ext}"),
+            ]
+
+            # Also search for any subtitle files that match
+            for fname in os.listdir(safe_output_dir):
+                if fname.endswith(f'.{sub_ext}') and lang_key in fname:
+                    possible_files.append(os.path.join(safe_output_dir, fname))
+                elif fname.endswith('.srt') or fname.endswith('.vtt'):
+                    possible_files.append(os.path.join(safe_output_dir, fname))
+
+            for sub_file in possible_files:
+                if os.path.isfile(sub_file):
+                    with open(sub_file, 'r', encoding='utf-8', errors='replace') as f:
+                        subtitle_text = f.read()
+                    if subtitle_text.strip():
+                        return subtitle_text, sub_file
+
+            return None, None
+
+    except Exception as e:
+        print(f"  Subtitle extraction error: {e}")
+        return None, None
+
+
+def download_audio_for_transcription(url, output_dir, cookies_file=None, cookies_from_browser=None):
+    """
+    Download only the audio track from a URL for transcription purposes.
+
+    Downloads as WAV for best Whisper compatibility.
+
+    Returns:
+        str: Path to the downloaded audio file, or None if failed
+    """
+    import yt_dlp
+
+    safe_output_dir = get_download_directory(output_dir)
+
+    # Check if FFmpeg is available for audio extraction
+    ffmpeg_available = shutil.which("ffmpeg") is not None
+
+    if ffmpeg_available:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': os.path.join(safe_output_dir, 'transcription_audio.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'wav',
+                'preferredquality': '16',
+            }],
+        }
+    else:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': os.path.join(safe_output_dir, 'transcription_audio.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+    elif cookies_from_browser:
+        ydl_opts['cookiesfrombrowser'] = (cookies_from_browser,)
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+
+            if not info:
+                return None
+
+            # Find the downloaded file
+            if ffmpeg_available:
+                audio_path = os.path.join(safe_output_dir, 'transcription_audio.wav')
+            else:
+                # Without FFmpeg, the file keeps its original extension
+                ext = info.get('ext', 'webm')
+                audio_path = os.path.join(safe_output_dir, f'transcription_audio.{ext}')
+
+            if os.path.isfile(audio_path):
+                return audio_path
+
+            # Search for the file if the expected name doesn't match
+            for fname in os.listdir(safe_output_dir):
+                if fname.startswith('transcription_audio'):
+                    return os.path.join(safe_output_dir, fname)
+
+            return None
+
+    except Exception as e:
+        print(f"  Audio download error: {e}")
+        return None
+
+
+def transcribe_with_whisper(audio_path, model_size='base', language=None):
+    """
+    Transcribe an audio/video file using OpenAI Whisper.
+
+    Args:
+        audio_path: Path to the audio or video file
+        model_size: Whisper model size (tiny, base, small, medium, large)
+        language: Language code (e.g., 'en', 'es') or None for auto-detect
+
+    Returns:
+        dict: Whisper result with 'text' and 'segments' keys, or None if failed
+    """
+    if not WHISPER_AVAILABLE:
+        print("Error: OpenAI Whisper is not installed.")
+        print("Install it with: pip install openai-whisper")
+        return None
+
+    if model_size not in WHISPER_MODELS:
+        print(f"Error: Invalid model size '{model_size}'.")
+        print(f"Available models: {', '.join(WHISPER_MODELS.keys())}")
+        return None
+
+    try:
+        print(f"  Loading Whisper '{model_size}' model...")
+        model = whisper.load_model(model_size)
+
+        print(f"  Transcribing audio (this may take a while)...")
+
+        transcribe_opts = {}
+        if language:
+            transcribe_opts['language'] = language
+
+        result = model.transcribe(str(audio_path), **transcribe_opts)
+
+        return result
+
+    except Exception as e:
+        print(f"  Whisper transcription error: {e}")
+        return None
+
+
+def parse_subtitle_to_text(subtitle_content):
+    """
+    Parse SRT or VTT subtitle content and extract plain text.
+
+    Removes timestamps, sequence numbers, and formatting tags.
+
+    Returns:
+        str: Plain text extracted from the subtitles
+    """
+    lines = subtitle_content.split('\n')
+    text_lines = []
+
+    for line in lines:
+        line = line.strip()
+
+        # Skip empty lines
+        if not line:
+            continue
+
+        # Skip SRT sequence numbers (lines that are just digits)
+        if line.isdigit():
+            continue
+
+        # Skip VTT header
+        if line.startswith('WEBVTT') or line.startswith('Kind:') or line.startswith('Language:'):
+            continue
+
+        # Skip timestamp lines (SRT: 00:00:00,000 --> 00:00:00,000 or VTT: 00:00.000 --> 00:00.000)
+        if '-->' in line:
+            continue
+
+        # Skip NOTE and STYLE blocks in VTT
+        if line.startswith('NOTE') or line.startswith('STYLE'):
+            continue
+
+        # Remove HTML-like tags (e.g., <c>, </c>, <b>, etc.)
+        cleaned = re.sub(r'<[^>]+>', '', line)
+
+        # Remove VTT positioning tags
+        cleaned = re.sub(r'\{[^}]+\}', '', cleaned)
+
+        cleaned = cleaned.strip()
+        if cleaned:
+            text_lines.append(cleaned)
+
+    # Remove consecutive duplicate lines (common in auto-generated captions)
+    deduplicated = []
+    for line in text_lines:
+        if not deduplicated or line != deduplicated[-1]:
+            deduplicated.append(line)
+
+    return ' '.join(deduplicated)
+
+
+def format_timestamp_srt(seconds):
+    """Convert seconds to SRT timestamp format (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def format_timestamp_vtt(seconds):
+    """Convert seconds to VTT timestamp format (HH:MM:SS.mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
+
+def save_transcription(text, segments, output_path, output_format='txt'):
+    """
+    Save transcription to file in the specified format.
+
+    Args:
+        text: Full transcription text
+        segments: List of segment dicts with 'start', 'end', 'text' keys (from Whisper)
+        output_path: Base output file path (extension will be replaced)
+        output_format: Output format ('txt', 'srt', 'vtt')
+
+    Returns:
+        str: Path to the saved file, or None if failed
+    """
+    # Ensure correct extension
+    base_path = os.path.splitext(output_path)[0]
+    output_file = f"{base_path}.{output_format}"
+
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            if output_format == 'txt':
+                f.write(text)
+
+            elif output_format == 'srt':
+                if segments:
+                    for i, seg in enumerate(segments, 1):
+                        start = format_timestamp_srt(seg['start'])
+                        end = format_timestamp_srt(seg['end'])
+                        f.write(f"{i}\n")
+                        f.write(f"{start} --> {end}\n")
+                        f.write(f"{seg['text'].strip()}\n\n")
+                else:
+                    # No segments, write as a single block
+                    f.write("1\n")
+                    f.write("00:00:00,000 --> 99:59:59,999\n")
+                    f.write(f"{text}\n\n")
+
+            elif output_format == 'vtt':
+                f.write("WEBVTT\n\n")
+                if segments:
+                    for i, seg in enumerate(segments, 1):
+                        start = format_timestamp_vtt(seg['start'])
+                        end = format_timestamp_vtt(seg['end'])
+                        f.write(f"{start} --> {end}\n")
+                        f.write(f"{seg['text'].strip()}\n\n")
+                else:
+                    f.write("00:00:00.000 --> 99:59:59.999\n")
+                    f.write(f"{text}\n\n")
+
+        return output_file
+
+    except Exception as e:
+        print(f"Error saving transcription: {e}")
+        return None
+
+
+def transcription_workflow(args=None):
+    """
+    Interactive workflow for transcribing media from URLs or local files.
+
+    Supports three transcription methods:
+    1. Subtitle extraction from URLs (fastest, uses yt-dlp)
+    2. Whisper transcription from URLs (downloads audio, then transcribes)
+    3. Whisper transcription from local files (direct transcription)
+
+    The workflow:
+    1. Prompts for a URL or local file path
+    2. For URLs: first tries subtitle extraction, then falls back to Whisper
+    3. For local files: uses Whisper directly
+    4. Allows model size and language selection
+    5. Saves the transcription in the chosen format
+    """
+    print("\n" + "="*80)
+    print("Media Transcription".center(80))
+    print("="*80)
+
+    # Check Whisper availability
+    if not WHISPER_AVAILABLE:
+        print("\nNote: OpenAI Whisper is not installed.")
+        print("Without Whisper, only subtitle extraction from URLs is available.")
+        print("To enable full transcription, install Whisper: pip install openai-whisper")
+        print("Whisper also requires FFmpeg to be installed.")
+
+    # Check FFmpeg availability
+    ffmpeg_available = shutil.which("ffmpeg") is not None
+    if not ffmpeg_available:
+        print("\nWarning: FFmpeg is not installed.")
+        print("FFmpeg is required for audio extraction and Whisper transcription.")
+        print("Subtitle extraction from URLs may still work without FFmpeg.")
+
+    # Get args defaults
+    if args is None:
+        args = argparse.Namespace(
+            url=None, output='youtube_downloads',
+            cookies=None, cookies_from_browser=None
+        )
+
+    output_dir = args.output if args.output else 'youtube_downloads'
+
+    # Get input source (URL or local file)
+    print("\nEnter a URL or local file path to transcribe:")
+    print("  Supported URLs: YouTube, Instagram, TikTok, Vimeo, and 1800+ sites")
+    print("  Supported files: MP3, WAV, FLAC, M4A, OGG, MP4, MKV, AVI, MOV, WebM")
+
+    # Try clipboard URL first
+    clipboard_url = get_clipboard_url()
+    source = None
+
+    if clipboard_url:
+        if RICH_AVAILABLE:
+            console = Console()
+            console.print(f"\n[cyan]Detected URL in clipboard:[/cyan] [yellow]{clipboard_url}[/yellow]")
+            use_clipboard = Confirm.ask("Use this URL?", default=True)
+            if use_clipboard:
+                source = clipboard_url
+        else:
+            print(f"\nDetected URL in clipboard: {clipboard_url}")
+            use_clipboard = input("Use this URL? (y/n): ").strip().lower()
+            if use_clipboard == 'y':
+                source = clipboard_url
+
+    if not source:
+        source = input("\nURL or file path: ").strip().strip('"').strip("'")
+
+    if not source:
+        print("Error: No input provided.")
+        return
+
+    # Determine if source is a local file or URL
+    is_local = is_local_media_file(source) or (os.path.isfile(source) and not source.startswith(('http://', 'https://')))
+
+    if is_local and not os.path.isfile(source):
+        # Try resolving relative path
+        abs_path = os.path.abspath(source)
+        if os.path.isfile(abs_path):
+            source = abs_path
+            is_local = True
+        else:
+            print(f"Error: File '{source}' not found.")
+            return
+
+    # Get language preference
+    print("\nLanguage options:")
+    print("  Enter a language code (e.g., 'en' for English, 'es' for Spanish)")
+    print("  Or press Enter for auto-detection (Whisper) / English (subtitles)")
+    language_input = input("Language: ").strip().lower()
+    language = language_input if language_input else None
+    sub_language = language if language else 'en'
+
+    # Get output format preference
+    print(f"\nOutput format options: {', '.join(f.upper() for f in TRANSCRIPTION_FORMATS)}")
+    format_input = input("Output format (default: txt): ").strip().lower()
+    if format_input not in TRANSCRIPTION_FORMATS:
+        format_input = 'txt'
+
+    transcription_text = None
+    transcription_segments = None
+    source_title = None
+
+    if is_local:
+        # === LOCAL FILE TRANSCRIPTION ===
+        source = os.path.abspath(source)
+        source_title = os.path.splitext(os.path.basename(source))[0]
+
+        print(f"\nTranscribing local file: {os.path.basename(source)}")
+
+        if not WHISPER_AVAILABLE:
+            print("Error: Whisper is required for local file transcription.")
+            print("Install it with: pip install openai-whisper")
+            return
+
+        if not ffmpeg_available:
+            print("Error: FFmpeg is required for Whisper transcription.")
+            return
+
+        # Select Whisper model
+        model_size = _select_whisper_model()
+        if not model_size:
+            return
+
+        result = transcribe_with_whisper(source, model_size, language)
+
+        if result:
+            transcription_text = result.get('text', '')
+            transcription_segments = result.get('segments', [])
+            detected_lang = result.get('language', 'unknown')
+            print(f"\n  Detected language: {detected_lang}")
+        else:
+            print("\nTranscription failed.")
+            return
+
+    else:
+        # === URL TRANSCRIPTION ===
+        print(f"\nProcessing URL: {source}")
+
+        # Get video info for title
+        print("  Fetching media information...")
+        info = get_video_info(source, args.cookies, args.cookies_from_browser)
+
+        if info:
+            source_title = info.get('title', 'transcription')
+            detected_site = detect_site(source)
+            site_info = get_supported_sites().get(detected_site, {'name': 'Unknown'})
+
+            print(f"  Site: {site_info['name']}")
+            print(f"  Title: {source_title}")
+            duration = info.get('duration', 0)
+            if duration:
+                print(f"  Duration: {format_duration(duration)}")
+        else:
+            source_title = 'transcription'
+            print("  Warning: Could not fetch media info, proceeding anyway...")
+
+        # Step 1: Try subtitle extraction first (fastest method)
+        print("\n  Step 1: Checking for existing subtitles/captions...")
+        sub_text, sub_file = extract_subtitles_from_url(
+            source, output_dir, args.cookies, args.cookies_from_browser, sub_language
+        )
+
+        if sub_text:
+            print("  Subtitles found!")
+
+            # Ask if user wants subtitles or Whisper transcription
+            if WHISPER_AVAILABLE and ffmpeg_available:
+                print("\n  Subtitles are available. You can:")
+                print("  1. Use extracted subtitles (faster)")
+                print("  2. Transcribe with Whisper (more accurate, slower)")
+                sub_choice = input("  Choice (1/2, default: 1): ").strip()
+
+                if sub_choice == '2':
+                    sub_text = None  # Force Whisper transcription below
+                else:
+                    # Parse subtitle text
+                    transcription_text = parse_subtitle_to_text(sub_text)
+                    transcription_segments = None
+            else:
+                transcription_text = parse_subtitle_to_text(sub_text)
+                transcription_segments = None
+
+        # Step 2: If no subtitles or user chose Whisper, use Whisper
+        if transcription_text is None:
+            print("\n  Step 2: Transcribing with Whisper...")
+
+            if not WHISPER_AVAILABLE:
+                print("  Error: Whisper is not installed and no subtitles were found.")
+                print("  Install Whisper: pip install openai-whisper")
+                return
+
+            if not ffmpeg_available:
+                print("  Error: FFmpeg is required for audio download and Whisper transcription.")
+                return
+
+            # Select Whisper model
+            model_size = _select_whisper_model()
+            if not model_size:
+                return
+
+            # Download audio from URL
+            print("  Downloading audio for transcription...")
+            audio_path = download_audio_for_transcription(
+                source, output_dir, args.cookies, args.cookies_from_browser
+            )
+
+            if not audio_path:
+                print("  Error: Failed to download audio.")
+                return
+
+            print(f"  Audio saved to: {audio_path}")
+
+            # Transcribe with Whisper
+            result = transcribe_with_whisper(audio_path, model_size, language)
+
+            if result:
+                transcription_text = result.get('text', '')
+                transcription_segments = result.get('segments', [])
+                detected_lang = result.get('language', 'unknown')
+                print(f"\n  Detected language: {detected_lang}")
+            else:
+                print("\n  Transcription failed.")
+                return
+
+            # Clean up temporary audio file
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
+
+    if not transcription_text:
+        print("\nNo transcription text was generated.")
+        return
+
+    # Display transcription preview
+    print("\n" + "="*80)
+    print("Transcription Preview".center(80))
+    print("="*80)
+
+    preview = transcription_text[:500]
+    if len(transcription_text) > 500:
+        preview += "..."
+    print(f"\n{preview}")
+    print(f"\n  Total characters: {len(transcription_text)}")
+    word_count = len(transcription_text.split())
+    print(f"  Total words: {word_count}")
+    if transcription_segments:
+        print(f"  Total segments: {len(transcription_segments)}")
+    print("="*80)
+
+    # Save transcription
+    safe_title = re.sub(r'[<>:"/\\|?*]', '_', source_title or 'transcription')
+    safe_output_dir = get_download_directory(output_dir)
+    output_path = os.path.join(safe_output_dir, safe_title)
+
+    saved_path = save_transcription(transcription_text, transcription_segments, output_path, format_input)
+
+    if saved_path:
+        print(f"\nTranscription saved to: {saved_path}")
+        print(f"File size: {format_size(os.path.getsize(saved_path))}")
+    else:
+        print("\nFailed to save transcription file.")
+
+    # Ask if user wants to save in additional formats
+    remaining_formats = [f for f in TRANSCRIPTION_FORMATS if f != format_input]
+    if remaining_formats and transcription_segments:
+        save_more = input(f"\nSave in additional formats ({', '.join(f.upper() for f in remaining_formats)})? (y/n): ").strip().lower()
+        if save_more == 'y':
+            for fmt in remaining_formats:
+                extra_path = save_transcription(transcription_text, transcription_segments, output_path, fmt)
+                if extra_path:
+                    print(f"  Saved: {extra_path}")
+
+
+def _select_whisper_model():
+    """
+    Interactive Whisper model selection.
+
+    Returns:
+        str: Selected model size name, or None if cancelled
+    """
+    print("\n  Select Whisper model:")
+    model_keys = list(WHISPER_MODELS.keys())
+    for i, (key, info) in enumerate(WHISPER_MODELS.items(), 1):
+        print(f"    {i}. {info['name']} - {info['description']} (~{info['size_mb']}MB)")
+
+    default_idx = model_keys.index('base') + 1
+    model_choice = input(f"  Model (1-{len(WHISPER_MODELS)}, default: {default_idx} for Base): ").strip()
+
+    if not model_choice:
+        return 'base'
+
+    if model_choice.isdigit():
+        idx = int(model_choice)
+        if 1 <= idx <= len(WHISPER_MODELS):
+            return model_keys[idx - 1]
+    elif model_choice.lower() in WHISPER_MODELS:
+        return model_choice.lower()
+
+    print("  Invalid selection. Using 'base' model.")
+    return 'base'
+
+
 # Audio conversion workflow
 def audio_conversion_workflow():
     """
@@ -1494,10 +2232,11 @@ def show_main_menu():
     print("\nPlease select an option:")
     print("  1. Download video from supported sites")
     print("  2. Convert audio/music file")
-    print("  3. Exit")
+    print("  3. Transcribe media (URL or local file)")
+    print("  4. Exit")
     print("-"*80)
-    
-    choice = input("Enter your choice (1-3): ").strip()
+
+    choice = input("Enter your choice (1-4): ").strip()
     return choice
 
 # Video download workflow (supports all sites via yt-dlp)
@@ -1714,7 +2453,7 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
 # Main function
 def main():
     # Set up argument parser
-    parser = argparse.ArgumentParser(description='Multi-Site Video Downloader and Audio Converter - Supports YouTube, Vimeo, SoundCloud, and 1800+ sites')
+    parser = argparse.ArgumentParser(description='Multi-Site Video Downloader, Audio Converter & Media Transcriber - Supports YouTube, Vimeo, SoundCloud, and 1800+ sites')
     parser.add_argument('url', nargs='*', help='Video URL(s) from any supported site (YouTube, Vimeo, SoundCloud, etc.). Can provide multiple URLs for parallel download.')
     parser.add_argument('-f', '--format', help='Specify format code directly')
     parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
@@ -1723,6 +2462,7 @@ def main():
     parser.add_argument('--mp4', action='store_true', help='Download as MP4 video')
     parser.add_argument('--high', action='store_true', help='Download high quality video+audio')
     parser.add_argument('--convert', action='store_true', help='Launch audio conversion mode')
+    parser.add_argument('--transcribe', action='store_true', help='Launch media transcription mode (URL or local file)')
     parser.add_argument('--no-wait', action='store_true', help='Do not wait for user input at the end')
     parser.add_argument('--cookies', help='Path to cookies file for authentication')
     parser.add_argument('--cookies-from-browser', 
@@ -1744,14 +2484,14 @@ def main():
     if RICH_AVAILABLE:
         console = Console()
         console.print("\n" + "="*80)
-        console.print("[bold cyan]Multi-Site Video Downloader & Audio Converter[/bold cyan]", justify="center")
+        console.print("[bold cyan]Multi-Site Video Downloader, Audio Converter & Transcriber[/bold cyan]", justify="center")
         console.print("[yellow]Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites[/yellow]", justify="center")
         console.print(f"[green]Version {VERSION} - Last updated: {VERSION_DATE}[/green]", justify="center")
         console.print("[dim]✨ Rich TUI Mode Enabled ✨[/dim]", justify="center")
         console.print("="*80 + "\n")
     else:
         print("\n" + "="*80)
-        print("Multi-Site Video Downloader & Audio Converter".center(80))
+        print("Multi-Site Video Downloader, Audio Converter & Transcriber".center(80))
         print("Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites".center(80))
         print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
         print("="*80)
@@ -1780,7 +2520,12 @@ def main():
     if args.convert:
         audio_conversion_workflow()
         return
-    
+
+    # If transcribe flag is set, go directly to transcription
+    if args.transcribe:
+        transcription_workflow(args)
+        return
+
     # Collect URLs from various sources
     urls = []
     
@@ -1848,7 +2593,7 @@ def main():
     # Show main menu if no URL provided
     while True:
         choice = show_main_menu()
-        
+
         if choice == '1':
             # Video download from any supported site
             youtube_download_workflow(args, ffmpeg_installed)
@@ -1858,11 +2603,15 @@ def main():
             audio_conversion_workflow()
             break
         elif choice == '3':
+            # Media transcription
+            transcription_workflow(args)
+            break
+        elif choice == '4':
             # Exit
             print("\nGoodbye!")
             return
         else:
-            print("\nInvalid choice. Please enter 1, 2, or 3.")
+            print("\nInvalid choice. Please enter 1, 2, 3, or 4.")
             time.sleep(MENU_RETRY_DELAY)
 
 # Copyright notice and disclaimer
