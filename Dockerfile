@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for YT-video-downloader
+# Multi-stage Dockerfile for Tapir
 # Using Alpine Linux for a lightweight image
 
 # Stage 1: Builder stage for Python dependencies
@@ -16,7 +16,7 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy and install Python requirements
-COPY requirements.txt /tmp/
+COPY cli/requirements.txt /tmp/
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
@@ -27,8 +27,8 @@ FROM python:3.12-alpine
 ARG VERSION=5.0.0
 
 # Set metadata labels
-LABEL maintainer="YT-video-downloader"
-LABEL description="Multi-Site Video Downloader, Audio Converter & Transcriber supporting YouTube, Vimeo, SoundCloud, and 1800+ sites"
+LABEL maintainer="Tapir"
+LABEL description="Tapir - Media Downloader, Converter & Transcriber supporting YouTube, Vimeo, SoundCloud, and 1800+ sites"
 LABEL version="${VERSION}"
 
 # Install runtime dependencies only
@@ -42,7 +42,7 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 
 # Copy application file
-COPY youtube_downloader.py .
+COPY cli/youtube_downloader.py .
 
 # Create downloads directory with appropriate permissions
 RUN mkdir -p /downloads && chmod 755 /downloads

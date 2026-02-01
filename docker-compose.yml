@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: yt-video-downloader:latest
-    container_name: yt-downloader
+    image: tapir:latest
+    container_name: tapir
     volumes:
       # Mount host directory for downloads
       - ./downloads:/downloads

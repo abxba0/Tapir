@@ -1,5 +1,5 @@
 /**
- * Utility functions for the YT Video Downloader TUI
+ * Utility functions for the Tapir TUI
  */
 
 import { $ } from "bun"

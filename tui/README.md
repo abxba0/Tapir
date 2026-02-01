@@ -1,6 +1,6 @@
-# YT Video Downloader TUI
+# Tapir TUI
 
-A terminal user interface for downloading videos, converting audio, and transcribing media -- built with [OpenTUI](https://opentui.com) and TypeScript, powered by [Bun](https://bun.sh).
+The TypeScript terminal UI for [Tapir](../README.md) -- download videos, convert audio, and transcribe media, all from the terminal. Built with [OpenTUI](https://opentui.com) and powered by [Bun](https://bun.sh).
 
 ## Prerequisites
 

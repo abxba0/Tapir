@@ -80,7 +80,7 @@ export function run(
       flexShrink: 0,
     })
 
-    const title = `Multi-Site Video Downloader, Audio Converter & Transcriber  v${VERSION}`
+    const title = `Tapir - Media Downloader, Converter & Transcriber  v${VERSION}`
     header = new TextRenderable(renderer, {
       id: "mm-header",
       content: title,

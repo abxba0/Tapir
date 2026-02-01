@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Multi-Site Video Downloader & Transcriber
+Tapir - Media Downloader, Converter & Transcriber
 
 A command-line tool to download videos from YouTube, Vimeo, SoundCloud,
 and 1800+ other sites, with audio format conversion and media transcription capabilities.
@@ -2453,7 +2453,7 @@ def youtube_download_workflow(args=None, ffmpeg_installed=True):
 # Main function
 def main():
     # Set up argument parser
-    parser = argparse.ArgumentParser(description='Multi-Site Video Downloader, Audio Converter & Media Transcriber - Supports YouTube, Vimeo, SoundCloud, and 1800+ sites')
+    parser = argparse.ArgumentParser(description='Tapir - Media Downloader, Converter & Transcriber - Supports YouTube, Vimeo, SoundCloud, and 1800+ sites')
     parser.add_argument('url', nargs='*', help='Video URL(s) from any supported site (YouTube, Vimeo, SoundCloud, etc.). Can provide multiple URLs for parallel download.')
     parser.add_argument('-f', '--format', help='Specify format code directly')
     parser.add_argument('-o', '--output', default='youtube_downloads', help='Output directory (default: youtube_downloads in your home directory)')
@@ -2484,14 +2484,14 @@ def main():
     if RICH_AVAILABLE:
         console = Console()
         console.print("\n" + "="*80)
-        console.print("[bold cyan]Multi-Site Video Downloader, Audio Converter & Transcriber[/bold cyan]", justify="center")
+        console.print("[bold cyan]Tapir - Media Downloader, Converter & Transcriber[/bold cyan]", justify="center")
         console.print("[yellow]Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites[/yellow]", justify="center")
         console.print(f"[green]Version {VERSION} - Last updated: {VERSION_DATE}[/green]", justify="center")
         console.print("[dim]✨ Rich TUI Mode Enabled ✨[/dim]", justify="center")
         console.print("="*80 + "\n")
     else:
         print("\n" + "="*80)
-        print("Multi-Site Video Downloader, Audio Converter & Transcriber".center(80))
+        print("Tapir - Media Downloader, Converter & Transcriber".center(80))
         print("Supports YouTube, Vimeo, SoundCloud, and 1800+ video sites".center(80))
         print(f"Version {VERSION} - Last updated: {VERSION_DATE}".center(80))
         print("="*80)

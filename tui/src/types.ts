@@ -1,5 +1,5 @@
 /**
- * Type definitions for the YT Video Downloader TUI
+ * Type definitions for the Tapir TUI
  */
 
 // ============================================================================

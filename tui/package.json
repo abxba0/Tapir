@@ -1,7 +1,7 @@
 {
-  "name": "yt-video-downloader-tui",
+  "name": "tapir-tui",
   "version": "5.0.0",
-  "description": "Multi-Site Video Downloader, Audio Converter & Transcriber - Terminal UI built with OpenTUI",
+  "description": "Tapir - Media Downloader, Converter & Transcriber - Terminal UI built with OpenTUI",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

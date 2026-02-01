@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * YT Video Downloader TUI - Main Entry Point
+ * Tapir TUI - Main Entry Point
  *
  * A terminal user interface for:
  *   - Downloading videos from YouTube, Instagram, TikTok, Vimeo & 1800+ sites
@@ -34,7 +34,7 @@ function parseArgs(): { mode: AppScreen; target?: string } {
 
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
-YT Video Downloader TUI v${VERSION} (${VERSION_DATE})
+Tapir TUI v${VERSION} (${VERSION_DATE})
 
 Usage:
   bun run src/index.ts                    Interactive TUI mode
