@@ -97,7 +97,7 @@ See [tui/README.md](tui/README.md) for full TUI documentation.
 ### Docker
 
 ```bash
-docker build -t tapir:latest .
+docker build -f docker/Dockerfile -t tapir:latest .
 
 # Download a video
 docker run --rm -v $(pwd)/downloads:/downloads tapir:latest \
@@ -106,9 +106,10 @@ docker run --rm -v $(pwd)/downloads:/downloads tapir:latest \
 # Convert to MP3
 docker run --rm -v $(pwd)/downloads:/downloads tapir:latest \
   "https://youtube.com/watch?v=VIDEO_ID" --mp3
-```
 
-See [DOCKER.md](DOCKER.md) for full Docker documentation.
+# Or use Docker Compose
+cd docker && docker-compose run --rm yt-downloader "VIDEO_URL" --mp3
+```
 
 ## Usage
 
@@ -221,8 +222,9 @@ python3 cli/youtube_downloader.py --list-sites
 │   ├── package.json                # Bun/Node dependencies
 │   ├── tsconfig.json               # TypeScript config
 │   └── README.md                   # TUI-specific docs
-├── Dockerfile                      # Docker image definition
-├── docker-compose.yml              # Docker Compose config
+├── docker/                         # Docker configuration
+│   ├── Dockerfile                  # Image definition
+│   └── docker-compose.yml          # Compose config
 └── README.md                       # This file
 ```
 
