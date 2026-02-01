@@ -21,7 +21,7 @@ import { colors, layout } from "../components/theme"
 import { VERSION } from "../utils"
 
 export interface MainMenuResult {
-  choice: "download" | "convert" | "transcribe" | "exit"
+  choice: "download" | "convert" | "transcribe" | "setup" | "exit"
 }
 
 let renderer: CliRenderer | null = null
@@ -50,6 +50,11 @@ const menuOptions: SelectOption[] = [
     name: "Transcribe Media",
     description: "Get transcriptions from URLs or local audio/video files",
     value: "transcribe",
+  },
+  {
+    name: "Setup / Install Dependencies",
+    description: "Check and install required & optional packages",
+    value: "setup",
   },
   {
     name: "Exit",

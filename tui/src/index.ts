@@ -16,17 +16,12 @@
  *   bun run src/index.ts --transcribe SRC # Direct transcription
  */
 
-import { createCliRenderer, type CliRenderer, type KeyEvent } from "@opentui/core"
-import { VERSION, VERSION_DATE, checkYtDlp, checkFfmpeg, checkWhisper } from "./utils"
+import { VERSION, VERSION_DATE } from "./utils"
 import type { AppState, AppScreen } from "./types"
-
-import * as mainMenu from "./screens/mainMenu"
-import * as downloadScreen from "./screens/downloadScreen"
-import * as convertScreen from "./screens/convertScreen"
-import * as transcribeScreen from "./screens/transcribeScreen"
+import { isFirstRun } from "./services/setup"
 
 // ============================================================================
-// CLI Argument Parsing
+// CLI Argument Parsing (runs immediately - no heavy imports)
 // ============================================================================
 
 function parseArgs(): { mode: AppScreen; target?: string } {
@@ -41,6 +36,7 @@ Usage:
   bun run src/index.ts --download <URL>   Download a video directly
   bun run src/index.ts --convert <FILE>   Convert audio file directly
   bun run src/index.ts --transcribe <SRC> Transcribe a URL or local file
+  bun run src/index.ts --setup            Run dependency setup
   bun run src/index.ts --help             Show this help message
 
 Keyboard Controls (TUI mode):
@@ -56,6 +52,10 @@ Dependencies:
   Optional:  openai-whisper (for transcription)
 `)
     process.exit(0)
+  }
+
+  if (args.includes("--setup")) {
+    return { mode: "setup" }
   }
 
   const downloadIdx = args.indexOf("--download")
@@ -83,26 +83,30 @@ Dependencies:
 async function main() {
   const { mode, target } = parseArgs()
 
-  // Check dependencies
-  console.log("Checking dependencies...")
+  // On first run (or --setup), show the setup screen before anything else.
+  // Otherwise go straight to the requested screen.
+  const firstRun = isFirstRun()
+  const startScreen: AppScreen = (firstRun && mode === "main_menu") ? "setup" : mode
+
+  // Lazy-import the renderer only when we actually need it.
+  // This avoids loading @opentui/core for --help.
+  const { createCliRenderer } = await import("@opentui/core")
+
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: true,
+    targetFps: 30,
+  })
+
+  // Run dependency checks in parallel while renderer initialises
+  const { checkYtDlp, checkFfmpeg, checkWhisper } = await import("./utils")
   const [ytDlpInstalled, ffmpegInstalled, whisperAvailable] = await Promise.all([
     checkYtDlp(),
     checkFfmpeg(),
     checkWhisper(),
   ])
 
-  if (!ytDlpInstalled) {
-    console.error("Error: yt-dlp is not installed.")
-    console.error("Install it with: pip install yt-dlp")
-    process.exit(1)
-  }
-
-  console.log(`  yt-dlp:  ${ytDlpInstalled ? "OK" : "NOT FOUND"}`)
-  console.log(`  ffmpeg:  ${ffmpegInstalled ? "OK" : "NOT FOUND"}`)
-  console.log(`  whisper: ${whisperAvailable ? "OK" : "NOT FOUND"}`)
-
   const state: AppState = {
-    currentScreen: mode,
+    currentScreen: startScreen,
     ffmpegInstalled,
     ytDlpInstalled,
     whisperAvailable,
@@ -111,27 +115,46 @@ async function main() {
     isProcessing: false,
   }
 
-  // Create the renderer
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: true,
-    targetFps: 30,
-  })
-
   // Global quit handler
-  const globalKeyHandler = (key: KeyEvent) => {
+  renderer.keyInput.on("keypress", (key: any) => {
     if (key.name === "q" && state.currentScreen === "main_menu") {
       cleanup(renderer)
       process.exit(0)
     }
-  }
-  renderer.keyInput.on("keypress", globalKeyHandler)
+  })
+
+  // Lazy screen loaders - only import when navigating to a screen
+  const loadMainMenu = () => import("./screens/mainMenu")
+  const loadSetupScreen = () => import("./screens/setupScreen")
+  const loadDownloadScreen = () => import("./screens/downloadScreen")
+  const loadConvertScreen = () => import("./screens/convertScreen")
+  const loadTranscribeScreen = () => import("./screens/transcribeScreen")
 
   // Main application loop
   let running = true
 
   while (running) {
     switch (state.currentScreen) {
+      case "setup": {
+        const setupScreen = await loadSetupScreen()
+        const setupResult = await setupScreen.run(renderer)
+        setupScreen.destroy(renderer)
+
+        if (setupResult.action === "exit") {
+          running = false
+          break
+        }
+
+        // Update dependency state from setup results
+        state.ytDlpInstalled = setupResult.ytDlpInstalled
+        state.ffmpegInstalled = setupResult.ffmpegInstalled
+        state.whisperAvailable = setupResult.whisperAvailable
+        state.currentScreen = "main_menu"
+        break
+      }
+
       case "main_menu": {
+        const mainMenu = await loadMainMenu()
         const result = await mainMenu.run(renderer, {
           ffmpegInstalled: state.ffmpegInstalled,
           ytDlpInstalled: state.ytDlpInstalled,
@@ -149,6 +172,9 @@ async function main() {
           case "transcribe":
             state.currentScreen = "transcribe"
             break
+          case "setup":
+            state.currentScreen = "setup"
+            break
           case "exit":
             running = false
             break
@@ -157,6 +183,7 @@ async function main() {
       }
 
       case "download": {
+        const downloadScreen = await loadDownloadScreen()
         await downloadScreen.run(renderer)
         downloadScreen.destroy(renderer)
         state.currentScreen = "main_menu"
@@ -164,6 +191,7 @@ async function main() {
       }
 
       case "audio_convert": {
+        const convertScreen = await loadConvertScreen()
         await convertScreen.run(renderer)
         convertScreen.destroy(renderer)
         state.currentScreen = "main_menu"
@@ -171,6 +199,7 @@ async function main() {
       }
 
       case "transcribe": {
+        const transcribeScreen = await loadTranscribeScreen()
         await transcribeScreen.run(renderer)
         transcribeScreen.destroy(renderer)
         state.currentScreen = "main_menu"
@@ -186,7 +215,7 @@ async function main() {
   cleanup(renderer)
 }
 
-function cleanup(renderer: CliRenderer) {
+function cleanup(renderer: any) {
   renderer.stop()
   console.log("\nGoodbye!")
   console.log("\nDISCLAIMER:")

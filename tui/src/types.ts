@@ -157,6 +157,7 @@ export interface TranscriptionOptions {
 
 export type AppScreen =
   | "main_menu"
+  | "setup"
   | "download"
   | "download_progress"
   | "audio_convert"
