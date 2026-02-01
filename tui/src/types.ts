@@ -60,6 +60,8 @@ export interface DownloadOptions {
   cookiesFromBrowser?: string
   isPlaylist?: boolean
   archiveFile?: string
+  downloadSubs?: boolean
+  subLangs?: string
 }
 
 export interface DownloadResult {
@@ -67,6 +69,25 @@ export interface DownloadResult {
   success: boolean
   message: string
   outputDir?: string
+}
+
+export interface DownloadProgress {
+  phase: "downloading" | "merging" | "post_processing" | "subtitles" | "done"
+  percent: number
+  totalSize?: string
+  speed?: string
+  eta?: string
+  raw: string
+}
+
+export interface SearchResult {
+  id: string
+  title: string
+  url: string
+  channel: string
+  duration: number
+  viewCount: number
+  description: string
 }
 
 export type FormatSelection =
@@ -158,6 +179,7 @@ export interface TranscriptionOptions {
 export type AppScreen =
   | "main_menu"
   | "setup"
+  | "search"
   | "download"
   | "download_progress"
   | "audio_convert"

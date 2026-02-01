@@ -4,8 +4,9 @@
  * Steps:
  *   1. Enter URL
  *   2. Fetch video info
- *   3. Select format
- *   4. Download with progress
+ *   3. Toggle subtitle download & choose language
+ *   4. Select format
+ *   5. Download with real-time progress bar
  */
 
 import {
@@ -29,9 +30,15 @@ import {
   formatCount,
   isValidUrl,
 } from "../utils"
-import type { VideoInfo } from "../types"
+import type { VideoInfo, DownloadProgress } from "../types"
 
-type ScreenPhase = "url_input" | "fetching" | "format_select" | "downloading" | "done"
+type ScreenPhase =
+  | "url_input"
+  | "fetching"
+  | "subtitle_options"
+  | "format_select"
+  | "downloading"
+  | "done"
 
 let renderer: CliRenderer | null = null
 let headerBox: BoxRenderable | null = null
@@ -44,10 +51,25 @@ let urlInputBox: BoxRenderable | null = null
 let urlInput: InputRenderable | null = null
 let formatSelect: SelectRenderable | null = null
 let formatSelectBox: BoxRenderable | null = null
+let subtitleSelect: SelectRenderable | null = null
+let subtitleSelectBox: BoxRenderable | null = null
+let subLangInputBox: BoxRenderable | null = null
+let subLangInput: InputRenderable | null = null
 let progressText: TextRenderable | null = null
+let progressBarText: TextRenderable | null = null
 let keyHandler: ((key: KeyEvent) => void) | null = null
 let resolveScreen: (() => void) | null = null
 let currentPhase: ScreenPhase = "url_input"
+
+// State for subtitle options
+let wantSubs = false
+let subLangs = "en.*,en"
+let currentUrl = ""
+let currentInfo: VideoInfo | null = null
+
+// ============================================================================
+// Helpers
+// ============================================================================
 
 function setStatus(message: string, color: string = colors.text) {
   if (!renderer || !contentBox) return
@@ -67,6 +89,34 @@ function setStatus(message: string, color: string = colors.text) {
     contentBox.add(statusText)
   }
 }
+
+function renderProgressBar(percent: number, width: number = 40): string {
+  if (percent < 0) return "[" + " ".repeat(width) + "]   0%"
+  const clamped = Math.min(100, Math.max(0, percent))
+  const filled = Math.round((clamped / 100) * width)
+  const empty = width - filled
+  const bar = "#".repeat(filled) + "-".repeat(empty)
+  return `[${bar}] ${clamped.toFixed(1)}%`
+}
+
+function clearDynamicContent() {
+  if (!contentBox) return
+
+  if (urlInput) { urlInput.destroy(); urlInput = null }
+  if (urlInputBox) { contentBox.remove(urlInputBox.id); urlInputBox = null }
+  if (formatSelect) { formatSelect.destroy(); formatSelect = null }
+  if (formatSelectBox) { contentBox.remove(formatSelectBox.id); formatSelectBox = null }
+  if (subtitleSelect) { subtitleSelect.destroy(); subtitleSelect = null }
+  if (subtitleSelectBox) { contentBox.remove(subtitleSelectBox.id); subtitleSelectBox = null }
+  if (subLangInput) { subLangInput.destroy(); subLangInput = null }
+  if (subLangInputBox) { contentBox.remove(subLangInputBox.id); subLangInputBox = null }
+  if (progressText) { contentBox.remove(progressText.id); progressText = null }
+  if (progressBarText) { contentBox.remove(progressBarText.id); progressBarText = null }
+}
+
+// ============================================================================
+// Phase: URL Input
+// ============================================================================
 
 function showUrlInput() {
   if (!renderer || !contentBox) return
@@ -122,9 +172,14 @@ function showUrlInput() {
   urlInputBox.focus()
 }
 
+// ============================================================================
+// Phase: Fetch Info
+// ============================================================================
+
 async function handleUrlSubmit(url: string) {
   if (!renderer || !contentBox) return
   currentPhase = "fetching"
+  currentUrl = url
 
   const site = detectSite(url)
   const siteInfo = getSupportedSites()[site] || { name: "Unknown" }
@@ -142,31 +197,197 @@ async function handleUrlSubmit(url: string) {
     return
   }
 
+  currentInfo = info
   const title = info.title || "Unknown"
   const channel = info.channel || info.uploader || "Unknown"
   const duration = formatDuration(info.duration)
   const views = formatCount(info.view_count)
   const isPlaylist = info._type === "playlist" || info._type === "multi_video"
 
+  // Check if subtitles are available
+  const hasSubs = info.subtitles && Object.keys(info.subtitles).length > 0
+  const hasAutoCaptions = info.automatic_captions && Object.keys(info.automatic_captions).length > 0
+  const subInfo = hasSubs || hasAutoCaptions
+    ? "Subtitles available"
+    : "No subtitles found (auto-captions may still be generated)"
+
   if (isPlaylist) {
     const count = info.entries?.length || 0
     setStatus(
-      `Playlist: ${title}\nChannel: ${channel}\nVideos: ${count}\n\nSelect download format:`,
+      `Playlist: ${title}\nChannel: ${channel}\nVideos: ${count}\n${subInfo}`,
       colors.textGreen,
     )
   } else {
     setStatus(
-      `Title: ${title}\nChannel: ${channel}\nDuration: ${duration} | Views: ${views}\n\nSelect download format:`,
+      `Title: ${title}\nChannel: ${channel}\nDuration: ${duration} | Views: ${views}\n${subInfo}`,
       colors.textGreen,
     )
   }
 
-  showFormatSelect(url, info)
+  // Clean up URL input before showing subtitle options
+  if (urlInput) { urlInput.destroy(); urlInput = null }
+  if (urlInputBox) { contentBox.remove(urlInputBox.id); urlInputBox = null }
+
+  showSubtitleOptions()
 }
 
-function showFormatSelect(url: string, info: VideoInfo) {
+// ============================================================================
+// Phase: Subtitle Options
+// ============================================================================
+
+function showSubtitleOptions() {
   if (!renderer || !contentBox) return
+  currentPhase = "subtitle_options"
+
+  const subOptions: SelectOption[] = [
+    {
+      name: "Skip subtitles",
+      description: "Download video/audio only",
+      value: "no_subs",
+    },
+    {
+      name: "Download subtitles (English)",
+      description: "Download .srt subtitle files alongside video (en)",
+      value: "subs_en",
+    },
+    {
+      name: "Download subtitles (custom languages)",
+      description: "Specify subtitle languages (e.g. en,es,fr,ja)",
+      value: "subs_custom",
+    },
+  ]
+
+  subtitleSelectBox = new BoxRenderable(renderer, {
+    id: "dl-sub-box",
+    width: "auto",
+    height: "auto",
+    minHeight: 5,
+    borderStyle: "single",
+    borderColor: colors.border,
+    focusedBorderColor: colors.accentPurple,
+    title: "Subtitle Download",
+    titleAlignment: "center",
+    flexGrow: 0,
+    flexShrink: 0,
+    marginTop: 1,
+    backgroundColor: "transparent",
+    border: true,
+  })
+
+  subtitleSelect = new SelectRenderable(renderer, {
+    id: "dl-sub-select",
+    width: "auto",
+    height: "auto",
+    minHeight: 4,
+    options: subOptions,
+    backgroundColor: colors.bgPanel,
+    focusedBackgroundColor: colors.bgInput,
+    textColor: colors.text,
+    focusedTextColor: colors.textBright,
+    selectedBackgroundColor: colors.accentPurple,
+    selectedTextColor: "#ffffff",
+    descriptionColor: colors.textDim,
+    selectedDescriptionColor: colors.textCyan,
+    showScrollIndicator: true,
+    wrapSelection: true,
+    showDescription: true,
+    flexGrow: 1,
+    flexShrink: 1,
+  })
+
+  subtitleSelect.on(SelectRenderableEvents.ITEM_SELECTED, async (_index: number, option: SelectOption) => {
+    const val = option.value as string
+
+    // Clean up subtitle select
+    if (subtitleSelect) { subtitleSelect.destroy(); subtitleSelect = null }
+    if (subtitleSelectBox) { contentBox!.remove(subtitleSelectBox.id); subtitleSelectBox = null }
+
+    if (val === "no_subs") {
+      wantSubs = false
+      showFormatSelect()
+    } else if (val === "subs_en") {
+      wantSubs = true
+      subLangs = "en.*,en"
+      showFormatSelect()
+    } else if (val === "subs_custom") {
+      wantSubs = true
+      showSubLangInput()
+    }
+  })
+
+  subtitleSelectBox.add(subtitleSelect)
+  contentBox.add(subtitleSelectBox)
+  subtitleSelect.focus()
+  subtitleSelectBox.focus()
+}
+
+function showSubLangInput() {
+  if (!renderer || !contentBox) return
+
+  subLangInputBox = new BoxRenderable(renderer, {
+    id: "dl-sublang-box",
+    width: "auto",
+    height: 3,
+    borderStyle: "single",
+    borderColor: colors.border,
+    focusedBorderColor: colors.accentPurple,
+    title: "Subtitle Languages",
+    border: true,
+    flexGrow: 0,
+    flexShrink: 0,
+    marginTop: 1,
+    backgroundColor: "transparent",
+  })
+
+  subLangInput = new InputRenderable(renderer, {
+    id: "dl-sublang-input",
+    width: "auto",
+    placeholder: "en,es,fr,de,ja (comma-separated language codes)",
+    backgroundColor: colors.bgInput,
+    focusedBackgroundColor: colors.bgInputFocused,
+    textColor: colors.text,
+    focusedTextColor: colors.textBright,
+    placeholderColor: colors.textDim,
+    cursorColor: colors.textBright,
+    maxLength: 200,
+    flexGrow: 1,
+    flexShrink: 1,
+  })
+
+  subLangInput.on(InputRenderableEvents.ENTER, () => {
+    const langs = subLangInput?.value?.trim()
+    if (langs) {
+      subLangs = langs
+    } else {
+      subLangs = "en.*,en"
+    }
+
+    // Clean up
+    if (subLangInput) { subLangInput.destroy(); subLangInput = null }
+    if (subLangInputBox) { contentBox!.remove(subLangInputBox.id); subLangInputBox = null }
+
+    showFormatSelect()
+  })
+
+  subLangInputBox.add(subLangInput)
+  contentBox.add(subLangInputBox)
+  subLangInput.focus()
+  subLangInputBox.focus()
+}
+
+// ============================================================================
+// Phase: Format Selection
+// ============================================================================
+
+function showFormatSelect() {
+  if (!renderer || !contentBox || !currentInfo) return
   currentPhase = "format_select"
+
+  const subsLabel = wantSubs ? ` | Subtitles: ${subLangs}` : ""
+  setStatus(
+    (statusText?.content || "") + `\n\nSelect download format:${subsLabel}`,
+    colors.textGreen,
+  )
 
   const formatOptions: SelectOption[] = [
     { name: "Best Quality", description: "Best combined video+audio", value: "best" },
@@ -177,8 +398,8 @@ function showFormatSelect(url: string, info: VideoInfo) {
     { name: "Best Audio Only", description: "Highest quality audio stream", value: "bestaudio" },
   ]
 
-  if (info.formats) {
-    const combined = info.formats
+  if (currentInfo.formats) {
+    const combined = currentInfo.formats
       .filter((f) => f.vcodec !== "none" && f.acodec !== "none")
       .sort((a, b) => (b.height || 0) - (a.height || 0))
       .slice(0, 8)
@@ -233,7 +454,7 @@ function showFormatSelect(url: string, info: VideoInfo) {
   })
 
   formatSelect.on(SelectRenderableEvents.ITEM_SELECTED, async (_index: number, option: SelectOption) => {
-    await handleDownload(url, option.value as string, info)
+    await handleDownload(option.value as string)
   })
 
   formatSelectBox.add(formatSelect)
@@ -242,35 +463,93 @@ function showFormatSelect(url: string, info: VideoInfo) {
   formatSelectBox.focus()
 }
 
-async function handleDownload(url: string, format: string, info: VideoInfo) {
-  if (!renderer || !contentBox) return
+// ============================================================================
+// Phase: Download with Progress Bar
+// ============================================================================
+
+async function handleDownload(format: string) {
+  if (!renderer || !contentBox || !currentInfo) return
   currentPhase = "downloading"
 
+  // Clean up format select
   if (formatSelect) { formatSelect.destroy(); formatSelect = null }
   if (formatSelectBox) { contentBox.remove(formatSelectBox.id); formatSelectBox = null }
 
-  setStatus(`Downloading: ${info.title || url}\nFormat: ${format}\n`, colors.textYellow)
+  const title = currentInfo.title || currentUrl
+  const subsLabel = wantSubs ? `Subtitles: ${subLangs}\n` : ""
+  setStatus(`Downloading: ${title}\nFormat: ${format}\n${subsLabel}`, colors.textYellow)
 
+  // Progress bar
+  progressBarText = new TextRenderable(renderer, {
+    id: "dl-progress-bar",
+    content: renderProgressBar(0),
+    fg: colors.textCyan,
+    bg: "transparent",
+    flexGrow: 0,
+    flexShrink: 0,
+  })
+  contentBox.add(progressBarText)
+
+  // Progress detail
   progressText = new TextRenderable(renderer, {
     id: "dl-progress",
     content: "Starting download...",
-    fg: colors.textCyan,
+    fg: colors.textDim,
     bg: "transparent",
     flexGrow: 1,
     flexShrink: 1,
   })
   contentBox.add(progressText)
 
-  const isPlaylist = info._type === "playlist" || info._type === "multi_video"
+  const isPlaylist = currentInfo._type === "playlist" || currentInfo._type === "multi_video"
 
   const result = await downloadVideoWithProgress(
-    { url, format, outputDir: "youtube_downloads", isPlaylist },
-    (line: string) => {
+    {
+      url: currentUrl,
+      format,
+      outputDir: "youtube_downloads",
+      isPlaylist,
+      downloadSubs: wantSubs,
+      subLangs: wantSubs ? subLangs : undefined,
+    },
+    (progress: DownloadProgress) => {
+      // Update progress bar
+      if (progressBarText && progress.percent >= 0) {
+        progressBarText.content = renderProgressBar(progress.percent)
+      }
+
+      // Update detail line
       if (progressText) {
-        const lines = (String(progressText.content) || "").split("\n")
-        if (lines.length > 12) lines.splice(0, lines.length - 12)
-        lines.push(line)
-        progressText.content = lines.join("\n")
+        let detail = ""
+        switch (progress.phase) {
+          case "downloading":
+            if (progress.speed && progress.eta) {
+              detail = `Speed: ${progress.speed}  |  ETA: ${progress.eta}  |  Size: ${progress.totalSize || "?"}`
+            } else if (progress.percent === 100) {
+              detail = "Download complete, processing..."
+            } else {
+              detail = progress.raw
+            }
+            break
+          case "merging":
+            detail = "Merging video and audio streams..."
+            if (progressBarText) progressBarText.content = renderProgressBar(100)
+            break
+          case "post_processing":
+            detail = "Post-processing (converting format)..."
+            if (progressBarText) progressBarText.content = renderProgressBar(100)
+            break
+          case "subtitles":
+            detail = "Downloading subtitles..."
+            break
+          case "done":
+            detail = "Already downloaded."
+            if (progressBarText) progressBarText.content = renderProgressBar(100)
+            break
+          default:
+            detail = progress.raw
+        }
+        progressText.content = detail
       }
     },
   )
@@ -278,8 +557,10 @@ async function handleDownload(url: string, format: string, info: VideoInfo) {
   currentPhase = "done"
 
   if (result.success) {
+    if (progressBarText) progressBarText.content = renderProgressBar(100)
+    const subsNote = wantSubs ? `\nSubtitles: saved alongside video (${subLangs})` : ""
     setStatus(
-      `Download completed!\n\nTitle: ${info.title}\nSaved to: ${result.outputDir || "youtube_downloads"}`,
+      `Download completed!\n\nTitle: ${currentInfo.title}\nSaved to: ${result.outputDir || "youtube_downloads"}${subsNote}`,
       colors.textGreen,
     )
     if (progressText) progressText.content = "Download finished successfully."
@@ -290,11 +571,21 @@ async function handleDownload(url: string, format: string, info: VideoInfo) {
   if (footer) footer.content = "Press ESC or Q to return to main menu"
 }
 
-export function run(rendererInstance: CliRenderer): Promise<void> {
+// ============================================================================
+// Screen lifecycle
+// ============================================================================
+
+export function run(rendererInstance: CliRenderer, initialUrl?: string): Promise<void> {
   return new Promise((resolve) => {
     resolveScreen = resolve
     renderer = rendererInstance
     renderer.setBackgroundColor(colors.bg)
+
+    // Reset state
+    wantSubs = false
+    subLangs = "en.*,en"
+    currentUrl = ""
+    currentInfo = null
 
     headerBox = new BoxRenderable(renderer, {
       id: "dl-header-box",
@@ -362,7 +653,12 @@ export function run(rendererInstance: CliRenderer): Promise<void> {
     }
     renderer.keyInput.on("keypress", keyHandler)
 
-    showUrlInput()
+    // If an initial URL was provided (e.g. from search), skip URL input
+    if (initialUrl) {
+      handleUrlSubmit(initialUrl)
+    } else {
+      showUrlInput()
+    }
   })
 }
 
@@ -370,13 +666,17 @@ export function destroy(rendererInstance: CliRenderer): void {
   if (keyHandler) rendererInstance.keyInput.off("keypress", keyHandler)
   if (urlInput) urlInput.destroy()
   if (formatSelect) formatSelect.destroy()
+  if (subtitleSelect) subtitleSelect.destroy()
+  if (subLangInput) subLangInput.destroy()
   if (headerBox) rendererInstance.root.remove(headerBox.id)
   if (contentBox) rendererInstance.root.remove(contentBox.id)
   if (footerBox) rendererInstance.root.remove(footerBox.id)
 
   headerBox = null; header = null; contentBox = null; footerBox = null; footer = null
   statusText = null; urlInputBox = null; urlInput = null
-  formatSelect = null; formatSelectBox = null; progressText = null
+  formatSelect = null; formatSelectBox = null; progressText = null; progressBarText = null
+  subtitleSelect = null; subtitleSelectBox = null; subLangInput = null; subLangInputBox = null
   keyHandler = null; renderer = null; resolveScreen = null
   currentPhase = "url_input"
+  wantSubs = false; subLangs = "en.*,en"; currentUrl = ""; currentInfo = null
 }

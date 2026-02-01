@@ -21,7 +21,7 @@ import { colors, layout } from "../components/theme"
 import { VERSION } from "../utils"
 
 export interface MainMenuResult {
-  choice: "download" | "convert" | "transcribe" | "setup" | "exit"
+  choice: "download" | "search" | "convert" | "transcribe" | "setup" | "exit"
 }
 
 let renderer: CliRenderer | null = null
@@ -40,6 +40,11 @@ const menuOptions: SelectOption[] = [
     name: "Download Video",
     description: "Download from YouTube, Instagram, TikTok, Vimeo & 1800+ sites",
     value: "download",
+  },
+  {
+    name: "Search YouTube",
+    description: "Search YouTube and download directly from search results",
+    value: "search",
   },
   {
     name: "Convert Audio",

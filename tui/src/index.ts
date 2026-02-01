@@ -127,11 +127,13 @@ async function main() {
   const loadMainMenu = () => import("./screens/mainMenu")
   const loadSetupScreen = () => import("./screens/setupScreen")
   const loadDownloadScreen = () => import("./screens/downloadScreen")
+  const loadSearchScreen = () => import("./screens/searchScreen")
   const loadConvertScreen = () => import("./screens/convertScreen")
   const loadTranscribeScreen = () => import("./screens/transcribeScreen")
 
   // Main application loop
   let running = true
+  let pendingDownloadUrl: string | undefined
 
   while (running) {
     switch (state.currentScreen) {
@@ -166,6 +168,9 @@ async function main() {
           case "download":
             state.currentScreen = "download"
             break
+          case "search":
+            state.currentScreen = "search"
+            break
           case "convert":
             state.currentScreen = "audio_convert"
             break
@@ -182,10 +187,26 @@ async function main() {
         break
       }
 
+      case "search": {
+        const searchScreen = await loadSearchScreen()
+        const searchResult = await searchScreen.run(renderer)
+        searchScreen.destroy(renderer)
+
+        if (searchResult.action === "download" && searchResult.url) {
+          // Go straight to download with the selected URL
+          pendingDownloadUrl = searchResult.url
+          state.currentScreen = "download"
+        } else {
+          state.currentScreen = "main_menu"
+        }
+        break
+      }
+
       case "download": {
         const downloadScreen = await loadDownloadScreen()
-        await downloadScreen.run(renderer)
+        await downloadScreen.run(renderer, pendingDownloadUrl)
         downloadScreen.destroy(renderer)
+        pendingDownloadUrl = undefined
         state.currentScreen = "main_menu"
         break
       }

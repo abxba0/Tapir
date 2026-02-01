@@ -13,6 +13,8 @@ import type {
   DownloadOptions,
   DownloadResult,
   FormatSelection,
+  DownloadProgress,
+  SearchResult,
 } from "../types"
 import { getDownloadDirectory, SUBPROCESS_TIMEOUT } from "../utils"
 
@@ -128,7 +130,7 @@ export async function listFormats(
  * Download a video/audio with the specified format selection.
  */
 export async function downloadVideo(options: DownloadOptions): Promise<DownloadResult> {
-  const { url, format, outputDir, cookiesFile, cookiesFromBrowser, isPlaylist, archiveFile } = options
+  const { url, format, outputDir, cookiesFile, cookiesFromBrowser, isPlaylist, archiveFile, downloadSubs, subLangs } = options
   const safeDir = getDownloadDirectory(outputDir)
 
   const outputTemplate = isPlaylist
@@ -136,6 +138,16 @@ export async function downloadVideo(options: DownloadOptions): Promise<DownloadR
     : join(safeDir, "%(title)s.%(ext)s")
 
   const args = ["yt-dlp", "--no-warnings", "-o", outputTemplate]
+
+  // Subtitles
+  if (downloadSubs) {
+    args.push("--write-subs", "--write-auto-subs", "--sub-format", "srt")
+    if (subLangs) {
+      args.push("--sub-langs", subLangs)
+    } else {
+      args.push("--sub-langs", "en.*,en")
+    }
+  }
 
   // Cookies
   if (cookiesFile) args.push("--cookies", cookiesFile)
@@ -204,9 +216,10 @@ export async function downloadVideo(options: DownloadOptions): Promise<DownloadR
  */
 export async function downloadVideoWithProgress(
   options: DownloadOptions,
-  onProgress: (line: string) => void,
+  onProgress: (progress: DownloadProgress) => void,
+  onRawLine?: (line: string) => void,
 ): Promise<DownloadResult> {
-  const { url, format, outputDir, cookiesFile, cookiesFromBrowser, isPlaylist, archiveFile } = options
+  const { url, format, outputDir, cookiesFile, cookiesFromBrowser, isPlaylist, archiveFile, downloadSubs, subLangs } = options
   const safeDir = getDownloadDirectory(outputDir)
 
   const outputTemplate = isPlaylist
@@ -214,6 +227,16 @@ export async function downloadVideoWithProgress(
     : join(safeDir, "%(title)s.%(ext)s")
 
   const args = ["yt-dlp", "--newline", "--no-warnings", "-o", outputTemplate]
+
+  // Subtitles
+  if (downloadSubs) {
+    args.push("--write-subs", "--write-auto-subs", "--sub-format", "srt")
+    if (subLangs) {
+      args.push("--sub-langs", subLangs)
+    } else {
+      args.push("--sub-langs", "en.*,en")
+    }
+  }
 
   if (cookiesFile) args.push("--cookies", cookiesFile)
   if (cookiesFromBrowser) args.push("--cookies-from-browser", cookiesFromBrowser)
@@ -272,11 +295,17 @@ export async function downloadVideoWithProgress(
       buffer = lines.pop() || ""
 
       for (const line of lines) {
-        if (line.trim()) onProgress(line.trim())
+        if (line.trim()) {
+          if (onRawLine) onRawLine(line.trim())
+          onProgress(parseProgressLine(line.trim()))
+        }
       }
     }
 
-    if (buffer.trim()) onProgress(buffer.trim())
+    if (buffer.trim()) {
+      if (onRawLine) onRawLine(buffer.trim())
+      onProgress(parseProgressLine(buffer.trim()))
+    }
 
     const exitCode = await proc.exited
 
@@ -328,3 +357,126 @@ export async function downloadParallel(
 }
 
 const MAX_WORKERS_LIMIT = 10
+
+// ============================================================================
+// Progress Parsing
+// ============================================================================
+
+/**
+ * Parse a yt-dlp output line into structured progress data.
+ *
+ * yt-dlp progress lines look like:
+ *   [download]  45.2% of  120.50MiB at  5.23MiB/s ETA 00:12
+ *   [download] 100% of  120.50MiB in 00:23
+ *   [download] Destination: /path/to/file.mp4
+ *   [Merger] Merging formats into "/path/to/file.mp4"
+ */
+export function parseProgressLine(line: string): DownloadProgress {
+  // Percentage + size + speed + ETA
+  const progressMatch = line.match(
+    /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+\s*\S+)\s+at\s+([\d.]+\s*\S+\/s)\s+ETA\s+(\S+)/,
+  )
+  if (progressMatch) {
+    return {
+      phase: "downloading",
+      percent: parseFloat(progressMatch[1]),
+      totalSize: progressMatch[2].trim(),
+      speed: progressMatch[3].trim(),
+      eta: progressMatch[4].trim(),
+      raw: line,
+    }
+  }
+
+  // 100% completed line
+  const doneMatch = line.match(/\[download\]\s+100%\s+of\s+~?([\d.]+\s*\S+)/)
+  if (doneMatch) {
+    return {
+      phase: "downloading",
+      percent: 100,
+      totalSize: doneMatch[1].trim(),
+      speed: "",
+      eta: "00:00",
+      raw: line,
+    }
+  }
+
+  // Destination line
+  if (line.includes("[download] Destination:")) {
+    return { phase: "downloading", percent: 0, raw: line }
+  }
+
+  // Merging
+  if (line.includes("[Merger]") || line.includes("Merging formats")) {
+    return { phase: "merging", percent: 100, raw: line }
+  }
+
+  // Extracting audio
+  if (line.includes("[ExtractAudio]") || line.includes("Post-process")) {
+    return { phase: "post_processing", percent: 100, raw: line }
+  }
+
+  // Writing subtitles
+  if (line.includes("[info] Writing video subtitles") || line.includes("[download] Writing video subtitles")) {
+    return { phase: "subtitles", percent: 100, raw: line }
+  }
+
+  // Already downloaded
+  if (line.includes("has already been downloaded")) {
+    return { phase: "done", percent: 100, raw: line }
+  }
+
+  return { phase: "downloading", percent: -1, raw: line }
+}
+
+// ============================================================================
+// YouTube Search
+// ============================================================================
+
+/**
+ * Search YouTube using yt-dlp's ytsearch extractor.
+ */
+export async function searchYouTube(
+  query: string,
+  maxResults: number = 10,
+): Promise<SearchResult[]> {
+  try {
+    const args = [
+      "yt-dlp",
+      "--dump-json",
+      "--no-download",
+      "--no-warnings",
+      "--flat-playlist",
+      "--quiet",
+      `ytsearch${maxResults}:${query}`,
+    ]
+
+    const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
+    const stdout = await new Response(proc.stdout).text()
+    const exitCode = await proc.exited
+
+    if (exitCode !== 0) return []
+
+    const results: SearchResult[] = []
+    for (const line of stdout.trim().split("\n")) {
+      if (!line.trim()) continue
+      try {
+        const data = JSON.parse(line)
+        results.push({
+          id: data.id || "",
+          title: data.title || "Unknown",
+          url: data.url || data.webpage_url || `https://www.youtube.com/watch?v=${data.id}`,
+          channel: data.channel || data.uploader || "Unknown",
+          duration: data.duration || 0,
+          viewCount: data.view_count || 0,
+          description: data.description || "",
+        })
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return results
+  } catch {
+    return []
+  }
+}
