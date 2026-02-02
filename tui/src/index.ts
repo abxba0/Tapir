@@ -216,6 +216,7 @@ async function main() {
   const loadSettingsScreen = () => import("./screens/settingsScreen")
   const loadBatchScreen = () => import("./screens/batchScreen")
   const loadPlaylistScreen = () => import("./screens/playlistScreen")
+  const loadUninstallScreen = () => import("./screens/uninstallScreen")
 
   // Main application loop
   let running = true
@@ -277,6 +278,9 @@ async function main() {
             break
           case "setup":
             state.currentScreen = "setup"
+            break
+          case "uninstall":
+            state.currentScreen = "uninstall"
             break
           case "exit":
             running = false
@@ -349,6 +353,28 @@ async function main() {
         const newSettings = loadSettings()
         state.outputDir = newSettings.outputDir
         state.currentScreen = "main_menu"
+        break
+      }
+
+      case "uninstall": {
+        const uninstallScreen = await loadUninstallScreen()
+        const uninstallResult = await uninstallScreen.run(renderer)
+        uninstallScreen.destroy(renderer)
+
+        if (uninstallResult.action === "exit_app") {
+          running = false
+        } else {
+          // Re-check deps after potential removals
+          const [yt, ff, wh] = await Promise.all([
+            import("./utils").then((u) => u.checkYtDlp()),
+            import("./utils").then((u) => u.checkFfmpeg()),
+            import("./utils").then((u) => u.checkWhisper()),
+          ])
+          state.ytDlpInstalled = yt
+          state.ffmpegInstalled = ff
+          state.whisperAvailable = wh
+          state.currentScreen = "main_menu"
+        }
         break
       }
 

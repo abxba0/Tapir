@@ -26,7 +26,7 @@ import { colors, layout } from "../components/theme"
 import { VERSION } from "../utils"
 
 export interface MainMenuResult {
-  choice: "download" | "search" | "playlist" | "batch" | "convert" | "transcribe" | "settings" | "setup" | "exit"
+  choice: "download" | "search" | "playlist" | "batch" | "convert" | "transcribe" | "settings" | "setup" | "uninstall" | "exit"
 }
 
 export interface MainMenuState {
@@ -89,6 +89,11 @@ const menuOptions: SelectOption[] = [
     name: "Setup / Install Dependencies",
     description: "Check and install required & optional packages",
     value: "setup",
+  },
+  {
+    name: "Uninstall",
+    description: "Remove dependencies (yt-dlp, ffmpeg, whisper) or Tapir data",
+    value: "uninstall",
   },
   {
     name: "Exit",

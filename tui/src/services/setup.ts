@@ -33,6 +33,7 @@ export interface DependencyInfo {
   required: boolean
   checkFn: () => Promise<boolean>
   installCommands: Partial<Record<OSType, string[]>>
+  uninstallCommands?: Partial<Record<OSType, string[]>>
 }
 
 export interface DependencyStatus {
@@ -237,6 +238,17 @@ export function getDependencies(): DependencyInfo[] {
         linux_unknown: ["pip3 install yt-dlp"],
         windows_wsl: ["pip3 install yt-dlp"],
       },
+      uninstallCommands: {
+        macos: ["brew uninstall yt-dlp || pip3 uninstall -y yt-dlp"],
+        ubuntu: ["pip3 uninstall -y yt-dlp"],
+        debian: ["pip3 uninstall -y yt-dlp"],
+        fedora: ["pip3 uninstall -y yt-dlp"],
+        arch: ["sudo pacman -R --noconfirm yt-dlp || pip3 uninstall -y yt-dlp"],
+        opensuse: ["pip3 uninstall -y yt-dlp"],
+        alpine: ["pip3 uninstall -y yt-dlp"],
+        linux_unknown: ["pip3 uninstall -y yt-dlp"],
+        windows_wsl: ["pip3 uninstall -y yt-dlp"],
+      },
     },
     {
       name: "ffmpeg",
@@ -254,6 +266,17 @@ export function getDependencies(): DependencyInfo[] {
         linux_unknown: ["# Install ffmpeg using your package manager"],
         windows_wsl: ["sudo apt update && sudo apt install -y ffmpeg"],
       },
+      uninstallCommands: {
+        macos: ["brew uninstall ffmpeg"],
+        ubuntu: ["sudo apt remove -y ffmpeg && sudo apt autoremove -y"],
+        debian: ["sudo apt remove -y ffmpeg && sudo apt autoremove -y"],
+        fedora: ["sudo dnf remove -y ffmpeg"],
+        arch: ["sudo pacman -R --noconfirm ffmpeg"],
+        opensuse: ["sudo zypper remove -y ffmpeg"],
+        alpine: ["sudo apk del ffmpeg"],
+        linux_unknown: ["# Remove ffmpeg using your package manager"],
+        windows_wsl: ["sudo apt remove -y ffmpeg && sudo apt autoremove -y"],
+      },
     },
     {
       name: "whisper",
@@ -270,6 +293,17 @@ export function getDependencies(): DependencyInfo[] {
         alpine: ["pip3 install openai-whisper"],
         linux_unknown: ["pip3 install openai-whisper"],
         windows_wsl: ["pip3 install openai-whisper"],
+      },
+      uninstallCommands: {
+        macos: ["pip3 uninstall -y openai-whisper"],
+        ubuntu: ["pip3 uninstall -y openai-whisper"],
+        debian: ["pip3 uninstall -y openai-whisper"],
+        fedora: ["pip3 uninstall -y openai-whisper"],
+        arch: ["pip3 uninstall -y openai-whisper"],
+        opensuse: ["pip3 uninstall -y openai-whisper"],
+        alpine: ["pip3 uninstall -y openai-whisper"],
+        linux_unknown: ["pip3 uninstall -y openai-whisper"],
+        windows_wsl: ["pip3 uninstall -y openai-whisper"],
       },
     },
   ]
@@ -338,4 +372,86 @@ export async function installDependency(
   }
 
   return { success: false, output: "All install methods failed" }
+}
+
+// ============================================================================
+// Uninstall a single dependency
+// ============================================================================
+
+export async function uninstallDependency(
+  depName: string,
+  os: OSType,
+): Promise<{ success: boolean; output: string }> {
+  const dep = getDependencies().find((d) => d.name === depName)
+  if (!dep) return { success: false, output: `Unknown dependency: ${depName}` }
+
+  const commands = dep.uninstallCommands?.[os] ?? dep.uninstallCommands?.linux_unknown
+  if (!commands || commands.length === 0) {
+    return { success: false, output: `No uninstall command available for ${osDisplayName(os)}` }
+  }
+
+  for (const cmd of commands) {
+    if (cmd.startsWith("#")) continue
+
+    try {
+      const proc = Bun.spawn(["sh", "-c", cmd], {
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+
+      const exitCode = await proc.exited
+      const stdout = await new Response(proc.stdout).text()
+      const stderr = await new Response(proc.stderr).text()
+
+      if (exitCode === 0) {
+        return { success: true, output: stdout || "Uninstalled successfully" }
+      }
+      if (commands.indexOf(cmd) === commands.length - 1) {
+        return { success: false, output: stderr || stdout || `Command failed with exit code ${exitCode}` }
+      }
+    } catch (err: any) {
+      if (commands.indexOf(cmd) === commands.length - 1) {
+        return { success: false, output: err.message || "Uninstall failed" }
+      }
+    }
+  }
+
+  return { success: false, output: "All uninstall methods failed" }
+}
+
+// ============================================================================
+// Remove Tapir config, settings, and plugins
+// ============================================================================
+
+export function getConfigDir(): string {
+  return CONFIG_DIR
+}
+
+export function cleanupTapirConfig(): { removed: string[]; errors: string[] } {
+  const { rmSync } = require("fs")
+  const removed: string[] = []
+  const errors: string[] = []
+
+  // Remove config directory (~/.config/tapir/)
+  try {
+    if (existsSync(CONFIG_DIR)) {
+      rmSync(CONFIG_DIR, { recursive: true, force: true })
+      removed.push(CONFIG_DIR)
+    }
+  } catch (err: any) {
+    errors.push(`Failed to remove ${CONFIG_DIR}: ${err.message}`)
+  }
+
+  // Remove whisper model cache (~/.cache/whisper/)
+  const whisperCache = join(homedir(), ".cache", "whisper")
+  try {
+    if (existsSync(whisperCache)) {
+      rmSync(whisperCache, { recursive: true, force: true })
+      removed.push(whisperCache)
+    }
+  } catch (err: any) {
+    errors.push(`Failed to remove ${whisperCache}: ${err.message}`)
+  }
+
+  return { removed, errors }
 }
