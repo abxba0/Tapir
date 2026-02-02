@@ -10,6 +10,8 @@
     "server": "bun run src/index.ts --server",
     "mcp": "bun run src/index.ts --mcp",
     "build": "bun build src/index.ts --outdir dist --target node",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
