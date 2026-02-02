@@ -7,13 +7,13 @@
  *   - Converting audio between MP3, AAC, M4A, OGG, WAV, FLAC formats
  *   - Transcribing media from URLs or local files using Whisper
  *
- * Built with OpenTUI (@opentui/core) and TypeScript.
+ * Also supports:
+ *   - REST API daemon mode (--server)
+ *   - MCP server for AI agents (--mcp)
+ *   - Plugin system (~/.config/tapir/plugins/)
+ *   - Metadata embedding (automatic on download)
  *
- * Usage:
- *   bun run src/index.ts                  # Interactive TUI
- *   bun run src/index.ts --download URL   # Direct download
- *   bun run src/index.ts --convert FILE   # Direct conversion
- *   bun run src/index.ts --transcribe SRC # Direct transcription
+ * Built with OpenTUI (@opentui/core) and TypeScript.
  */
 
 import { VERSION, VERSION_DATE } from "./utils"
@@ -24,12 +24,18 @@ import { isFirstRun } from "./services/setup"
 // CLI Argument Parsing (runs immediately - no heavy imports)
 // ============================================================================
 
-function parseArgs(): { mode: AppScreen; target?: string } {
+interface ParsedArgs {
+  mode: AppScreen | "server" | "mcp"
+  target?: string
+  port?: number
+}
+
+function parseArgs(): ParsedArgs {
   const args = process.argv.slice(2)
 
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
-Tapir TUI v${VERSION} (${VERSION_DATE})
+Tapir v${VERSION} (${VERSION_DATE})
 
 Usage:
   bun run src/index.ts                    Interactive TUI mode
@@ -37,6 +43,8 @@ Usage:
   bun run src/index.ts --convert <FILE>   Convert audio file directly
   bun run src/index.ts --transcribe <SRC> Transcribe a URL or local file
   bun run src/index.ts --setup            Run dependency setup
+  bun run src/index.ts --server [--port N] Start REST API server (default port 8384)
+  bun run src/index.ts --mcp              Start MCP server for AI agents (stdio)
   bun run src/index.ts --help             Show this help message
 
 Keyboard Controls (TUI mode):
@@ -46,12 +54,44 @@ Keyboard Controls (TUI mode):
   ESC        Go back / exit current screen
   Q          Quit application (from main menu)
 
+Server mode (REST API):
+  POST /api/download        Queue a download
+  POST /api/search          YouTube search
+  POST /api/info            Get video info
+  POST /api/convert         Queue audio conversion
+  GET  /api/jobs            List all jobs
+  GET  /api/jobs/:id        Get job status
+  POST /api/metadata/embed  Embed metadata into file
+  GET  /api/plugins         List installed plugins
+  GET  /api/health          Health check
+
+MCP mode (AI agents):
+  Tools: search_youtube, get_video_info, download_video,
+         convert_audio, embed_metadata, list_plugins
+
+Plugins:
+  Drop scripts into ~/.config/tapir/plugins/{hook}/ to run automatically.
+  Hooks: post-download, post-convert, post-transcribe
+  Supported: .sh, .js, .ts, .py
+
 Dependencies:
   Required:  yt-dlp, bun
-  Optional:  ffmpeg (for conversion & high-quality downloads)
+  Optional:  ffmpeg (for conversion, metadata embedding & high-quality downloads)
   Optional:  openai-whisper (for transcription)
 `)
     process.exit(0)
+  }
+
+  // Server mode
+  if (args.includes("--server")) {
+    const portIdx = args.indexOf("--port")
+    const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : 8384
+    return { mode: "server", port }
+  }
+
+  // MCP mode
+  if (args.includes("--mcp")) {
+    return { mode: "mcp" }
   }
 
   if (args.includes("--setup")) {
@@ -81,7 +121,20 @@ Dependencies:
 // ============================================================================
 
 async function main() {
-  const { mode, target } = parseArgs()
+  const { mode, target, port } = parseArgs()
+
+  // Non-TUI modes: server and MCP
+  if (mode === "server") {
+    const { startServer } = await import("./server")
+    startServer(port)
+    return
+  }
+
+  if (mode === "mcp") {
+    const { startMcpServer } = await import("./mcp")
+    await startMcpServer()
+    return
+  }
 
   // On first run (or --setup), show the setup screen before anything else.
   // Otherwise go straight to the requested screen.

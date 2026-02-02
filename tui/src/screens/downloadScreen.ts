@@ -22,6 +22,8 @@ import {
 import type { SelectOption } from "@opentui/core"
 import { colors, layout } from "../components/theme"
 import { getVideoInfo, downloadVideoWithProgress, listFormats } from "../services/downloader"
+import { embedMetadata, extractMetadata, findLatestFile } from "../services/metadata"
+import { runHook } from "../services/plugins"
 import {
   detectSite,
   getSupportedSites,
@@ -558,9 +560,51 @@ async function handleDownload(format: string) {
 
   if (result.success) {
     if (progressBarText) progressBarText.content = renderProgressBar(100)
+    if (progressText) progressText.content = "Download finished. Embedding metadata..."
+
+    // Post-download: embed metadata (title, artist, thumbnail)
+    let metaNote = ""
+    if (result.outputDir && currentInfo) {
+      try {
+        const meta = extractMetadata(currentInfo, currentUrl)
+        const latestFile = findLatestFile(result.outputDir)
+        if (latestFile) {
+          const embedResult = await embedMetadata(latestFile, meta, { embedThumbnail: true })
+          if (embedResult.success) {
+            metaNote = "\nMetadata: embedded (title, artist, thumbnail)"
+          }
+        }
+      } catch {
+        // Non-critical - metadata embedding failure doesn't affect download
+      }
+    }
+
+    // Post-download: run plugin hooks
+    let pluginNote = ""
+    if (result.outputDir) {
+      try {
+        if (progressText) progressText.content = "Running post-download plugins..."
+        const latestFile = findLatestFile(result.outputDir)
+        const pluginResults = await runHook("post-download", {
+          file: latestFile || undefined,
+          title: currentInfo?.title,
+          url: currentUrl,
+          format,
+          outputDir: result.outputDir,
+          success: true,
+        })
+        if (pluginResults.length > 0) {
+          const passed = pluginResults.filter((r) => r.success).length
+          pluginNote = `\nPlugins: ${passed}/${pluginResults.length} ran successfully`
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+
     const subsNote = wantSubs ? `\nSubtitles: saved alongside video (${subLangs})` : ""
     setStatus(
-      `Download completed!\n\nTitle: ${currentInfo.title}\nSaved to: ${result.outputDir || "youtube_downloads"}${subsNote}`,
+      `Download completed!\n\nTitle: ${currentInfo.title}\nSaved to: ${result.outputDir || "youtube_downloads"}${subsNote}${metaNote}${pluginNote}`,
       colors.textGreen,
     )
     if (progressText) progressText.content = "Download finished successfully."

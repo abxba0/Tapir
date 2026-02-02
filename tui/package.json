@@ -7,6 +7,8 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
+    "server": "bun run src/index.ts --server",
+    "mcp": "bun run src/index.ts --mcp",
     "build": "bun build src/index.ts --outdir dist --target node",
     "typecheck": "tsc --noEmit"
   },
