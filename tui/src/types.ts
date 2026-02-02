@@ -187,6 +187,7 @@ export type AppScreen =
   | "settings"
   | "batch"
   | "playlist_browse"
+  | "uninstall"
   | "exit"
 
 export interface AppState {
