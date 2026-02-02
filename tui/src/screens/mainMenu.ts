@@ -3,9 +3,14 @@
  *
  * Options:
  *   1. Download video from supported sites
- *   2. Convert audio/music file
- *   3. Transcribe media (URL or local file)
- *   4. Exit
+ *   2. Search YouTube
+ *   3. Browse Playlist
+ *   4. Batch Download
+ *   5. Convert audio/music file
+ *   6. Transcribe media (URL or local file)
+ *   7. Settings
+ *   8. Setup / Install Dependencies
+ *   9. Exit
  */
 
 import {
@@ -21,7 +26,16 @@ import { colors, layout } from "../components/theme"
 import { VERSION } from "../utils"
 
 export interface MainMenuResult {
-  choice: "download" | "search" | "convert" | "transcribe" | "setup" | "exit"
+  choice: "download" | "search" | "playlist" | "batch" | "convert" | "transcribe" | "settings" | "setup" | "exit"
+}
+
+export interface MainMenuState {
+  ffmpegInstalled: boolean
+  ytDlpInstalled: boolean
+  whisperAvailable: boolean
+  updateAvailable?: boolean
+  currentVersion?: string | null
+  latestVersion?: string | null
 }
 
 let renderer: CliRenderer | null = null
@@ -47,6 +61,16 @@ const menuOptions: SelectOption[] = [
     value: "search",
   },
   {
+    name: "Browse Playlist",
+    description: "Fetch a playlist, pick individual videos to download",
+    value: "playlist",
+  },
+  {
+    name: "Batch Download",
+    description: "Queue multiple URLs and download them sequentially",
+    value: "batch",
+  },
+  {
     name: "Convert Audio",
     description: "Convert between MP3, AAC, M4A, OGG, WAV, FLAC formats",
     value: "convert",
@@ -55,6 +79,11 @@ const menuOptions: SelectOption[] = [
     name: "Transcribe Media",
     description: "Get transcriptions from URLs or local audio/video files",
     value: "transcribe",
+  },
+  {
+    name: "Settings",
+    description: "Configure defaults: output dir, format, subtitles, Whisper model, API port",
+    value: "settings",
   },
   {
     name: "Setup / Install Dependencies",
@@ -70,7 +99,7 @@ const menuOptions: SelectOption[] = [
 
 export function run(
   rendererInstance: CliRenderer,
-  state: { ffmpegInstalled: boolean; ytDlpInstalled: boolean; whisperAvailable: boolean },
+  state: MainMenuState,
 ): Promise<MainMenuResult> {
   return new Promise((resolve) => {
     resolveChoice = resolve
@@ -123,10 +152,15 @@ export function run(
       `Whisper: ${state.whisperAvailable ? "Available" : "Not Installed"}`,
     ].join("  |  ")
 
+    let updateNotice = ""
+    if (state.updateAvailable && state.latestVersion) {
+      updateNotice = `\n\nUpdate available: yt-dlp ${state.currentVersion || "?"} -> ${state.latestVersion} (update in Settings or Setup)`
+    }
+
     infoText = new TextRenderable(renderer, {
       id: "mm-info",
-      content: `${depStatus}\n\nSelect an option:`,
-      fg: colors.textDim,
+      content: `${depStatus}${updateNotice}\n\nSelect an option:`,
+      fg: state.updateAvailable ? colors.textYellow : colors.textDim,
       bg: "transparent",
       flexGrow: 0,
       flexShrink: 0,

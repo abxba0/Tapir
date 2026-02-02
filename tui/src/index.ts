@@ -6,12 +6,16 @@
  *   - Downloading videos from YouTube, Instagram, TikTok, Vimeo & 1800+ sites
  *   - Converting audio between MP3, AAC, M4A, OGG, WAV, FLAC formats
  *   - Transcribing media from URLs or local files using Whisper
+ *   - Batch downloading multiple URLs with queue management
+ *   - Browsing playlists and selecting individual videos
  *
  * Also supports:
  *   - REST API daemon mode (--server)
  *   - MCP server for AI agents (--mcp)
  *   - Plugin system (~/.config/tapir/plugins/)
  *   - Metadata embedding (automatic on download)
+ *   - Persistent user settings (~/.config/tapir/settings.json)
+ *   - Auto-update checking for yt-dlp
  *
  * Built with OpenTUI (@opentui/core) and TypeScript.
  */
@@ -19,6 +23,7 @@
 import { VERSION, VERSION_DATE } from "./utils"
 import type { AppState, AppScreen } from "./types"
 import { isFirstRun } from "./services/setup"
+import { loadSettings } from "./services/settings"
 
 // ============================================================================
 // CLI Argument Parsing (runs immediately - no heavy imports)
@@ -74,6 +79,10 @@ Plugins:
   Hooks: post-download, post-convert, post-transcribe
   Supported: .sh, .js, .ts, .py
 
+Settings:
+  Stored in ~/.config/tapir/settings.json
+  Configure via TUI Settings screen or edit directly.
+
 Dependencies:
   Required:  yt-dlp, bun
   Optional:  ffmpeg (for conversion, metadata embedding & high-quality downloads)
@@ -85,8 +94,9 @@ Dependencies:
   // Server mode
   if (args.includes("--server")) {
     const portIdx = args.indexOf("--port")
-    const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : 8384
-    return { mode: "server", port }
+    const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : undefined
+    const settings = loadSettings()
+    return { mode: "server", port: port ?? settings.apiPort }
   }
 
   // MCP mode
@@ -158,12 +168,32 @@ async function main() {
     checkWhisper(),
   ])
 
+  // Auto-update check (non-blocking, runs in background)
+  const settings = loadSettings()
+  let updateAvailable = false
+  let currentVersion: string | null = null
+  let latestVersion: string | null = null
+
+  if (settings.autoCheckUpdates && ytDlpInstalled) {
+    // Fire and forget - don't block startup
+    import("./services/updater").then(async ({ checkForUpdates }) => {
+      try {
+        const info = await checkForUpdates()
+        updateAvailable = info.updateAvailable
+        currentVersion = info.currentVersion
+        latestVersion = info.latestVersion
+      } catch {
+        // Non-critical
+      }
+    })
+  }
+
   const state: AppState = {
     currentScreen: startScreen,
     ffmpegInstalled,
     ytDlpInstalled,
     whisperAvailable,
-    outputDir: "youtube_downloads",
+    outputDir: settings.outputDir,
     statusMessage: "",
     isProcessing: false,
   }
@@ -183,6 +213,9 @@ async function main() {
   const loadSearchScreen = () => import("./screens/searchScreen")
   const loadConvertScreen = () => import("./screens/convertScreen")
   const loadTranscribeScreen = () => import("./screens/transcribeScreen")
+  const loadSettingsScreen = () => import("./screens/settingsScreen")
+  const loadBatchScreen = () => import("./screens/batchScreen")
+  const loadPlaylistScreen = () => import("./screens/playlistScreen")
 
   // Main application loop
   let running = true
@@ -214,6 +247,9 @@ async function main() {
           ffmpegInstalled: state.ffmpegInstalled,
           ytDlpInstalled: state.ytDlpInstalled,
           whisperAvailable: state.whisperAvailable,
+          updateAvailable,
+          currentVersion,
+          latestVersion,
         })
         mainMenu.destroy(renderer)
 
@@ -224,11 +260,20 @@ async function main() {
           case "search":
             state.currentScreen = "search"
             break
+          case "playlist":
+            state.currentScreen = "playlist_browse"
+            break
+          case "batch":
+            state.currentScreen = "batch"
+            break
           case "convert":
             state.currentScreen = "audio_convert"
             break
           case "transcribe":
             state.currentScreen = "transcribe"
+            break
+          case "settings":
+            state.currentScreen = "settings"
             break
           case "setup":
             state.currentScreen = "setup"
@@ -264,6 +309,22 @@ async function main() {
         break
       }
 
+      case "batch": {
+        const batchScreen = await loadBatchScreen()
+        await batchScreen.run(renderer)
+        batchScreen.destroy(renderer)
+        state.currentScreen = "main_menu"
+        break
+      }
+
+      case "playlist_browse": {
+        const playlistScreen = await loadPlaylistScreen()
+        await playlistScreen.run(renderer)
+        playlistScreen.destroy(renderer)
+        state.currentScreen = "main_menu"
+        break
+      }
+
       case "audio_convert": {
         const convertScreen = await loadConvertScreen()
         await convertScreen.run(renderer)
@@ -276,6 +337,17 @@ async function main() {
         const transcribeScreen = await loadTranscribeScreen()
         await transcribeScreen.run(renderer)
         transcribeScreen.destroy(renderer)
+        state.currentScreen = "main_menu"
+        break
+      }
+
+      case "settings": {
+        const settingsScreen = await loadSettingsScreen()
+        await settingsScreen.run(renderer)
+        settingsScreen.destroy(renderer)
+        // Reload settings after changes
+        const newSettings = loadSettings()
+        state.outputDir = newSettings.outputDir
         state.currentScreen = "main_menu"
         break
       }

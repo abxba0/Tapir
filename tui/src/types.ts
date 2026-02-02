@@ -185,6 +185,8 @@ export type AppScreen =
   | "audio_convert"
   | "transcribe"
   | "settings"
+  | "batch"
+  | "playlist_browse"
   | "exit"
 
 export interface AppState {
