@@ -5,10 +5,10 @@
 set -e
 
 echo "==================================="
-echo "YT-Video-Downloader Docker Tests"
+echo "Tapir Docker Tests"
 echo "==================================="
 
-IMAGE_NAME="yt-video-downloader:latest"
+IMAGE_NAME="tapir:latest"
 # Using a public domain video that should remain available
 TEST_VIDEO_URL="https://www.youtube.com/watch?v=aqz-KE-bpKQ"  # Big Buck Bunny (CC licensed, stable)
 
@@ -20,7 +20,7 @@ fi
 echo "✓ Docker is installed: $(docker --version)"
 
 echo "\n2. Checking if image exists..."
-if ! docker images | grep -q "yt-video-downloader"; then
+if ! docker images | grep -q "tapir"; then
     echo "WARNING: Image not found. Building now..."
     docker build -t "$IMAGE_NAME" .
 fi

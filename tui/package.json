@@ -1,0 +1,37 @@
+{
+  "name": "tapir-tui",
+  "version": "5.0.0",
+  "description": "Tapir - Media Downloader, Converter & Transcriber - Terminal UI built with OpenTUI",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "server": "bun run src/index.ts --server",
+    "mcp": "bun run src/index.ts --mcp",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "youtube",
+    "downloader",
+    "video",
+    "audio",
+    "converter",
+    "transcription",
+    "whisper",
+    "tui",
+    "terminal",
+    "opentui"
+  ],
+  "license": "MIT"
+}

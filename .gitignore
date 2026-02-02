@@ -44,3 +44,8 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Node.js / Bun
+node_modules/
+tui/node_modules/
+tui/dist/

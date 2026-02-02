@@ -9,13 +9,12 @@
 LICENSE
 
 # Docker and CI/CD files
-docker-compose.yml
-.github-workflow-example.yml
-test-docker.sh
+docker/
+tui/
 
 # Test files
-test_*.py
-tests/
+cli/test_*.py
+cli/test-docker.sh
 .pytest_cache/
 htmlcov/
 .coverage
