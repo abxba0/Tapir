@@ -32,8 +32,8 @@ The TypeScript terminal UI for [Tapir](../README.md) -- download videos, convert
 
 ```bash
 # Clone the repository (if you haven't already)
-git clone https://github.com/abxba0/YT-video-downloader.git
-cd YT-video-downloader/tui
+git clone https://github.com/abxba0/Tapir.git
+cd Tapir/tui
 
 # Install dependencies
 bun install
