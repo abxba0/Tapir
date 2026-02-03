@@ -2,9 +2,8 @@
 
 A media downloader, converter, transcriber, and text-to-speech tool for the terminal. Download videos from **YouTube, Vimeo, Instagram, TikTok, SoundCloud, and 1800+ other sites**, convert audio between formats, transcribe media using OpenAI Whisper, and convert documents to speech audio.
 
-Available in two flavors:
-- **[cli/](cli/)** - Python CLI with Rich TUI mode
-- **[tui/](tui/)** - TypeScript terminal UI built with [OpenTUI](https://opentui.com) and [Bun](https://bun.sh)
+
+- [ ] **[tui/](tui/)** - TypeScript terminal UI built with [OpenTUI](https://opentui.com) and [Bun](https://bun.sh)
 
 ## Features
 
@@ -80,21 +79,7 @@ Available models (downloaded automatically on first use):
 
 ## Quick Start
 
-### Python CLI
 
-```bash
-git clone https://github.com/abxba0/Tapir.git
-cd Tapir
-
-# Install dependencies
-pip install -r cli/requirements.txt
-
-# Run interactively
-python3 cli/youtube_downloader.py
-
-# Or use directly from the command line
-python3 cli/youtube_downloader.py "https://youtube.com/watch?v=VIDEO_ID"
-```
 
 ### TypeScript TUI
 
@@ -106,22 +91,7 @@ bun start
 
 See [tui/README.md](tui/README.md) for full TUI documentation.
 
-### Docker
 
-```bash
-docker build -f docker/Dockerfile -t tapir:latest .
-
-# Download a video
-docker run --rm -v $(pwd)/downloads:/downloads tapir:latest \
-  "https://youtube.com/watch?v=VIDEO_ID"
-
-# Convert to MP3
-docker run --rm -v $(pwd)/downloads:/downloads tapir:latest \
-  "https://youtube.com/watch?v=VIDEO_ID" --mp3
-
-# Or use Docker Compose
-cd docker && docker-compose run --rm yt-downloader "VIDEO_URL" --mp3
-```
 
 ## Usage
 
@@ -140,67 +110,7 @@ Choose from:
 4. **Text to Speech** - Convert documents to speech audio (TUI only)
 5. **Exit**
 
-### Command-Line Mode
 
-```bash
-# Download a video
-python3 cli/youtube_downloader.py "https://youtube.com/watch?v=VIDEO_ID"
-
-# Download from other sites
-python3 cli/youtube_downloader.py "https://vimeo.com/VIDEO_ID"
-python3 cli/youtube_downloader.py "https://tiktok.com/@user/video/VIDEO_ID"
-python3 cli/youtube_downloader.py "https://instagram.com/reel/REEL_ID"
-
-# Convert to MP3
-python3 cli/youtube_downloader.py --mp3 "VIDEO_URL"
-
-# High quality (best video + audio merged)
-python3 cli/youtube_downloader.py --high "VIDEO_URL"
-
-# Download a playlist
-python3 cli/youtube_downloader.py "https://youtube.com/playlist?list=PLAYLIST_ID"
-
-# Custom output directory
-python3 cli/youtube_downloader.py -o "/path/to/downloads" "VIDEO_URL"
-
-# Show video info only
-python3 cli/youtube_downloader.py --info "VIDEO_URL"
-
-# Launch audio conversion mode
-python3 cli/youtube_downloader.py --convert
-
-# Launch transcription mode
-python3 cli/youtube_downloader.py --transcribe
-
-# List supported sites
-python3 cli/youtube_downloader.py --list-sites
-```
-
-### Parallel Downloads
-
-```bash
-# Download multiple URLs in parallel (default: 3 workers)
-python3 cli/youtube_downloader.py "URL1" "URL2" "URL3" --parallel
-
-# Custom worker count (max: 10)
-python3 cli/youtube_downloader.py "URL1" "URL2" --parallel --max-workers 5
-
-# From a batch file
-python3 cli/youtube_downloader.py --batch-file urls.txt --parallel
-
-# From stdin
-cat urls.txt | python3 cli/youtube_downloader.py --stdin --parallel
-```
-
-### Cookies Support
-
-```bash
-# Use a cookies file
-python3 cli/youtube_downloader.py --cookies cookies.txt "VIDEO_URL"
-
-# Extract cookies from your browser
-python3 cli/youtube_downloader.py --cookies-from-browser chrome "VIDEO_URL"
-```
 
 ## Supported Sites
 
@@ -224,12 +134,7 @@ python3 cli/youtube_downloader.py --list-sites
 
 ```
 .
-├── cli/                            # Python CLI application
-│   ├── youtube_downloader.py       # Main application
-│   ├── requirements.txt            # Python dependencies
-│   ├── test_youtube_downloader.py  # Unit tests (140+)
-│   ├── test_integration.py         # Integration tests (40+)
-│   └── test-docker.sh              # Docker test script
+
 ├── tui/                            # TypeScript TUI application
 │   ├── src/                        # Source code
 │   │   ├── screens/                # TUI screens (download, search, batch, TTS, etc.)
@@ -237,26 +142,13 @@ python3 cli/youtube_downloader.py --list-sites
 │   │   └── __tests__/              # Test suites (400+ tests)
 │   ├── package.json                # Bun/Node dependencies
 │   ├── tsconfig.json               # TypeScript config
-│   └── README.md                   # TUI-specific docs
-├── docker/                         # Docker configuration
-│   ├── Dockerfile                  # Image definition
-│   └── docker-compose.yml          # Compose config
+│   └── README.md                   # TUI-specific docs  
 └── README.md                       # This file
 ```
 
 ## Development & Testing
 
-```bash
-# Install test dependencies
-pip install pytest pytest-cov pytest-mock
 
-# Run all tests
-pytest cli/test_youtube_downloader.py cli/test_integration.py -v
-
-# Run with coverage
-pytest cli/test_youtube_downloader.py cli/test_integration.py \
-  --cov=youtube_downloader --cov-report=html
-```
 
 - **181 automated tests** with **83% code coverage**
 - Unit tests covering URL validation, site detection, downloads, conversion, parallel processing, cookies, and error handling
