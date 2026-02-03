@@ -35,7 +35,7 @@ A media downloader, converter, transcriber, and text-to-speech tool for the term
 | Dependency | Purpose | Install |
 |------------|---------|---------|
 | **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** | Video/audio downloading | `pip install yt-dlp` or `brew install yt-dlp` |
-| **[Python 3.8+](https://python.org)** | Python CLI (`cli/`) | Pre-installed on most systems |
+| **[Python 3.8+](https://python.org)** | Python  | Pre-installed on most systems |
 | **[Bun](https://bun.sh)** | TypeScript TUI (`tui/`) | `curl -fsSL https://bun.sh/install \| bash` |
 
 ### Optional
