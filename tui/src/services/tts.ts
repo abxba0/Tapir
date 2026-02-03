@@ -351,7 +351,7 @@ async function generateChunk(
     case "gtts": {
       const tmpMp3 = outputFormat === "mp3" ? outputFile : outputFile + ".tmp.mp3"
       const proc = Bun.spawn(
-        ["gtts-cli", "-l", voice, "-o", tmpMp3, text],
+        ["gtts-cli", "-l", voice, "-o", tmpMp3, "--", text],
         { stdout: "pipe", stderr: "pipe" },
       )
       const exitCode = await proc.exited
@@ -374,7 +374,7 @@ async function generateChunk(
       const cmd = existsSync("/usr/bin/espeak-ng") ? "espeak-ng" : "espeak"
       const tmpWav = outputFormat === "wav" ? outputFile : outputFile + ".tmp.wav"
       const proc = Bun.spawn(
-        [cmd, "-v", voice, "-w", tmpWav, text],
+        [cmd, "-v", voice, "-w", tmpWav, "--", text],
         { stdout: "pipe", stderr: "pipe" },
       )
       const exitCode = await proc.exited

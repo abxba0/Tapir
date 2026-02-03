@@ -5,7 +5,7 @@
 import { $ } from "bun"
 import { existsSync, mkdirSync, accessSync, constants, statSync, readdirSync, unlinkSync } from "fs"
 import { homedir, tmpdir, platform } from "os"
-import { join, isAbsolute, extname, basename } from "path"
+import { join, isAbsolute, extname, basename, resolve } from "path"
 import type { SupportedSites, AudioFormats, WhisperModels, TTSEngine } from "./types"
 
 // ============================================================================
@@ -233,6 +233,37 @@ export function isLocalMediaFile(path: string): boolean {
 
 export function sanitizeFilename(name: string): string {
   return name.replace(/[<>:"/\\|?*]/g, "_")
+}
+
+// ============================================================================
+// Security Validation
+// ============================================================================
+
+/**
+ * Validate and resolve a file path, blocking sensitive system paths.
+ * Returns the resolved absolute path, or null if blocked/invalid.
+ */
+export function validateFilePath(filePath: string): string | null {
+  const resolved = resolve(filePath)
+  if (/^\/(etc|proc|sys|dev|boot)\//.test(resolved)) return null
+  const home = homedir()
+  if (resolved.startsWith(home + "/.ssh") || resolved.startsWith(home + "/.gnupg")) return null
+  try {
+    if (!statSync(resolved).isFile()) return null
+  } catch {
+    return null
+  }
+  return resolved
+}
+
+/**
+ * Reject URLs with dangerous schemes (file://, data://, javascript://).
+ * Allows http(s) and scheme-less URLs (passed to yt-dlp as-is).
+ */
+export function isSafeUrl(url: string): boolean {
+  if (!url || typeof url !== "string") return false
+  const lower = url.toLowerCase().trimStart()
+  return !lower.startsWith("file:") && !lower.startsWith("data:") && !lower.startsWith("javascript:")
 }
 
 // ============================================================================

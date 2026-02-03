@@ -29,6 +29,8 @@ import {
   getSupportedAudioFormats,
   getWhisperModels,
   parseSubtitleToText,
+  validateFilePath,
+  isSafeUrl,
 } from "../utils"
 
 // ============================================================================
@@ -582,5 +584,81 @@ STYLE
 Actual text`
     const result = parseSubtitleToText(vtt)
     expect(result).toBe("Actual text")
+  })
+})
+
+// ============================================================================
+// Security: validateFilePath
+// ============================================================================
+
+describe("validateFilePath", () => {
+  test("blocks /etc/ paths", () => {
+    expect(validateFilePath("/etc/passwd")).toBeNull()
+    expect(validateFilePath("/etc/shadow")).toBeNull()
+  })
+
+  test("blocks /proc/ paths", () => {
+    expect(validateFilePath("/proc/self/environ")).toBeNull()
+  })
+
+  test("blocks /sys/ paths", () => {
+    expect(validateFilePath("/sys/class/net")).toBeNull()
+  })
+
+  test("blocks /dev/ paths", () => {
+    expect(validateFilePath("/dev/null")).toBeNull()
+  })
+
+  test("returns null for nonexistent files", () => {
+    expect(validateFilePath("/tmp/does_not_exist_xyz.txt")).toBeNull()
+  })
+
+  test("returns resolved path for valid files", () => {
+    const tmp = join(tmpdir(), "tapir_validate_test.txt")
+    writeFileSync(tmp, "test")
+    try {
+      const result = validateFilePath(tmp)
+      expect(result).toBe(tmp)
+    } finally {
+      try { rmSync(tmp) } catch {}
+    }
+  })
+
+  test("returns null for directories", () => {
+    expect(validateFilePath(tmpdir())).toBeNull()
+  })
+})
+
+// ============================================================================
+// Security: isSafeUrl
+// ============================================================================
+
+describe("isSafeUrl", () => {
+  test("rejects file:// URLs", () => {
+    expect(isSafeUrl("file:///etc/passwd")).toBe(false)
+    expect(isSafeUrl("FILE:///etc/passwd")).toBe(false)
+  })
+
+  test("rejects data: URLs", () => {
+    expect(isSafeUrl("data:text/html,<h1>hi</h1>")).toBe(false)
+  })
+
+  test("rejects javascript: URLs", () => {
+    expect(isSafeUrl("javascript:alert(1)")).toBe(false)
+  })
+
+  test("allows http/https URLs", () => {
+    expect(isSafeUrl("https://youtube.com/watch?v=abc")).toBe(true)
+    expect(isSafeUrl("http://example.com")).toBe(true)
+  })
+
+  test("allows scheme-less URLs", () => {
+    expect(isSafeUrl("youtube.com/watch?v=abc")).toBe(true)
+  })
+
+  test("rejects empty/null values", () => {
+    expect(isSafeUrl("")).toBe(false)
+    expect(isSafeUrl(null as any)).toBe(false)
+    expect(isSafeUrl(undefined as any)).toBe(false)
   })
 })

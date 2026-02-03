@@ -18,7 +18,7 @@
  *   Each message is a single line of JSON.
  */
 
-import { VERSION } from "./utils"
+import { VERSION, validateFilePath, isSafeUrl } from "./utils"
 import {
   getVideoInfo,
   downloadVideo,
@@ -210,6 +210,9 @@ async function executeTool(
 
       case "get_video_info": {
         const url = args.url as string
+        if (!isSafeUrl(url)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "URL scheme not allowed" }) }] }
+        }
         const info = await getVideoInfo(url)
 
         if (!info) {
@@ -248,6 +251,9 @@ async function executeTool(
 
       case "download_video": {
         const url = args.url as string
+        if (!isSafeUrl(url)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "URL scheme not allowed" }) }] }
+        }
         const format = (args.format as string) || "best"
         const outputDir = (args.output_dir as string) || "youtube_downloads"
         const downloadSubs = args.download_subs as boolean | undefined
@@ -300,6 +306,9 @@ async function executeTool(
 
       case "convert_audio": {
         const inputFile = args.input_file as string
+        if (!validateFilePath(inputFile)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Invalid or inaccessible file path" }) }] }
+        }
         const outputFormat = args.output_format as string
         const bitrate = args.bitrate as number | undefined
 
@@ -334,6 +343,9 @@ async function executeTool(
 
       case "embed_metadata": {
         const file = args.file as string
+        if (!validateFilePath(file)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Invalid or inaccessible file path" }) }] }
+        }
         const result = await embedMetadata(
           file,
           {
@@ -353,6 +365,9 @@ async function executeTool(
 
       case "text_to_speech": {
         const inputFile = args.input_file as string
+        if (!validateFilePath(inputFile)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Invalid or inaccessible file path" }) }] }
+        }
         const voice = args.voice as string | undefined
         const outputFormat = (args.output_format as "mp3" | "wav") || "mp3"
         const outputDir = (args.output_dir as string) || "youtube_downloads"
