@@ -450,8 +450,8 @@ async function startBatchDownload(format: string) {
 
       // Try metadata embedding
       if (result.outputDir) {
+        const latestFile = findLatestFile(result.outputDir)
         try {
-          const latestFile = findLatestFile(result.outputDir)
           if (latestFile) {
             await embedMetadata(latestFile, { title: item.url }, { embedThumbnail: false })
           }
@@ -459,7 +459,7 @@ async function startBatchDownload(format: string) {
 
         try {
           await runHook("post-download", {
-            file: findLatestFile(result.outputDir) || undefined,
+            file: latestFile || undefined,
             url: item.url,
             format,
             outputDir: result.outputDir,

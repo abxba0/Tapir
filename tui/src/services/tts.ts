@@ -11,7 +11,7 @@
  *   - TXT/MD/RST/CSV/LOG/HTML: read directly as text, HTML tags stripped
  */
 
-import { existsSync, readFileSync, statSync, unlinkSync, readdirSync } from "fs"
+import { existsSync, readFileSync, statSync, unlinkSync, readdirSync, copyFileSync, renameSync } from "fs"
 import { extname, basename, join, dirname } from "path"
 import type { TTSEngine, TTSVoice, TTSOptions, TTSResult, TTSOutputFormat } from "../types"
 import {
@@ -405,7 +405,6 @@ async function concatenateAudioFiles(
   if (files.length === 0) return false
   if (files.length === 1) {
     // Just rename/copy the single file
-    const { copyFileSync } = await import("fs")
     try {
       copyFileSync(files[0], outputFile)
       return true
@@ -559,12 +558,10 @@ export async function textToSpeech(
     }
   } else if (chunkFiles.length === 1) {
     // Rename single chunk to final output
-    const { renameSync } = await import("fs")
     try {
       renameSync(chunkFiles[0], finalOutput)
     } catch {
       // Cross-device rename fallback
-      const { copyFileSync } = await import("fs")
       copyFileSync(chunkFiles[0], finalOutput)
       try { unlinkSync(chunkFiles[0]) } catch {}
     }

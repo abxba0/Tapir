@@ -487,9 +487,9 @@ async function startPlaylistDownload(format: string) {
 
       // Metadata embedding
       if (result.outputDir) {
+        const latestFile = findLatestFile(result.outputDir)
         try {
           const meta = extractMetadata(entry, entryUrl)
-          const latestFile = findLatestFile(result.outputDir)
           if (latestFile) {
             await embedMetadata(latestFile, meta, { embedThumbnail: true })
           }
@@ -497,7 +497,7 @@ async function startPlaylistDownload(format: string) {
 
         try {
           await runHook("post-download", {
-            file: findLatestFile(result.outputDir) || undefined,
+            file: latestFile || undefined,
             title: entry.title,
             url: entryUrl,
             format,

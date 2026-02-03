@@ -5,7 +5,7 @@
  * Uses ffmpeg for all tag writing so no additional dependencies are needed.
  */
 
-import { existsSync, unlinkSync, renameSync, writeFileSync } from "fs"
+import { existsSync, unlinkSync, renameSync, writeFileSync, readdirSync, statSync } from "fs"
 import { join, dirname, basename, extname } from "path"
 import { tmpdir } from "os"
 import type { VideoInfo } from "../types"
@@ -267,7 +267,6 @@ export async function embedMetadataInDir(
   meta: MediaMetadata,
   options: { embedThumbnail?: boolean; extensions?: string[] } = {},
 ): Promise<EmbedResult[]> {
-  const { readdirSync } = await import("fs")
   const extensions = options.extensions || [".mp4", ".mp3", ".m4a", ".mkv", ".webm", ".ogg", ".flac"]
   const results: EmbedResult[] = []
 
@@ -296,7 +295,6 @@ export function findLatestFile(dir: string, extensions?: string[]): string | nul
   const exts = extensions || [".mp4", ".mp3", ".m4a", ".mkv", ".webm", ".ogg", ".flac", ".wav"]
 
   try {
-    const { readdirSync, statSync } = require("fs")
     const files = readdirSync(dir) as string[]
     let latestPath: string | null = null
     let latestTime = 0

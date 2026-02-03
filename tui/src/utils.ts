@@ -123,15 +123,17 @@ export function isValidUrl(url: string): boolean {
   return true
 }
 
+// Precompiled YouTube URL patterns (avoid re-creating RegExp objects on every call)
+const YOUTUBE_URL_PATTERNS = [
+  /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]{11}/,
+  /^(https?:\/\/)?(www\.)?youtu\.be\/[\w-]{11}/,
+  /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/[\w-]{11}/,
+  /^(https?:\/\/)?(www\.)?youtube\.com\/(playlist\?list=|watch\?.*&list=)/,
+  /^(https?:\/\/)?(www\.)?youtube\.com\/(channel\/|c\/|user\/|@)/,
+] as const
+
 export function isValidYoutubeUrl(url: string): boolean {
-  const patterns = [
-    /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]{11}/,
-    /^(https?:\/\/)?(www\.)?youtu\.be\/[\w-]{11}/,
-    /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/[\w-]{11}/,
-    /^(https?:\/\/)?(www\.)?youtube\.com\/(playlist\?list=|watch\?.*&list=)/,
-    /^(https?:\/\/)?(www\.)?youtube\.com\/(channel\/|c\/|user\/|@)/,
-  ]
-  return patterns.some((p) => p.test(url))
+  return YOUTUBE_URL_PATTERNS.some((p) => p.test(url))
 }
 
 // ============================================================================
@@ -213,12 +215,17 @@ export function getDownloadDirectory(specifiedDir: string = "youtube_downloads")
   return fallback
 }
 
+// Pre-built set of all media extensions for O(1) lookup
+const ALL_MEDIA_EXTENSIONS = new Set<string>([
+  ...SUPPORTED_MEDIA_EXTENSIONS.audio,
+  ...SUPPORTED_MEDIA_EXTENSIONS.video,
+])
+
 export function isLocalMediaFile(path: string): boolean {
   try {
     if (!existsSync(path)) return false
     const ext = extname(path).toLowerCase()
-    const allExts = [...SUPPORTED_MEDIA_EXTENSIONS.audio, ...SUPPORTED_MEDIA_EXTENSIONS.video]
-    return allExts.includes(ext as any)
+    return ALL_MEDIA_EXTENSIONS.has(ext)
   } catch {
     return false
   }
@@ -335,9 +342,15 @@ export async function checkEspeak(): Promise<boolean> {
 }
 
 export async function detectAvailableTtsEngine(): Promise<TTSEngine | null> {
-  if (await checkEdgeTts()) return "edge-tts"
-  if (await checkGtts()) return "gtts"
-  if (await checkEspeak()) return "espeak"
+  // Run all checks in parallel, then pick the first available by priority
+  const [hasEdge, hasGtts, hasEspeak] = await Promise.all([
+    checkEdgeTts(),
+    checkGtts(),
+    checkEspeak(),
+  ])
+  if (hasEdge) return "edge-tts"
+  if (hasGtts) return "gtts"
+  if (hasEspeak) return "espeak"
   return null
 }
 

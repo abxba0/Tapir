@@ -564,10 +564,10 @@ async function handleDownload(format: string) {
 
     // Post-download: embed metadata (title, artist, thumbnail)
     let metaNote = ""
+    const latestFile = result.outputDir ? findLatestFile(result.outputDir) : null
     if (result.outputDir && currentInfo) {
       try {
         const meta = extractMetadata(currentInfo, currentUrl)
-        const latestFile = findLatestFile(result.outputDir)
         if (latestFile) {
           const embedResult = await embedMetadata(latestFile, meta, { embedThumbnail: true })
           if (embedResult.success) {
@@ -584,7 +584,6 @@ async function handleDownload(format: string) {
     if (result.outputDir) {
       try {
         if (progressText) progressText.content = "Running post-download plugins..."
-        const latestFile = findLatestFile(result.outputDir)
         const pluginResults = await runHook("post-download", {
           file: latestFile || undefined,
           title: currentInfo?.title,
