@@ -133,8 +133,6 @@ python3 cli/youtube_downloader.py --list-sites
 ## Project Structure
 
 ```
-.
-
 ├── tui/                            # TypeScript TUI application
 │   ├── src/                        # Source code
 │   │   ├── screens/                # TUI screens (download, search, batch, TTS, etc.)
