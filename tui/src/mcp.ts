@@ -18,7 +18,7 @@
  *   Each message is a single line of JSON.
  */
 
-import { VERSION, validateFilePath, isSafeUrl } from "./utils"
+import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl } from "./utils"
 import {
   getVideoInfo,
   downloadVideo,
@@ -345,6 +345,9 @@ async function executeTool(
         const file = args.file as string
         if (!validateFilePath(file)) {
           return { content: [{ type: "text", text: JSON.stringify({ error: "Invalid or inaccessible file path" }) }] }
+        }
+        if (args.thumbnail_url && !isSafeFetchUrl(args.thumbnail_url as string)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Thumbnail URL not allowed" }) }] }
         }
         const result = await embedMetadata(
           file,

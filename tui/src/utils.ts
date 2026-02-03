@@ -3,7 +3,7 @@
  */
 
 import { $ } from "bun"
-import { existsSync, mkdirSync, accessSync, constants, statSync, readdirSync, unlinkSync } from "fs"
+import { existsSync, mkdirSync, accessSync, constants, statSync, readdirSync, unlinkSync, realpathSync } from "fs"
 import { homedir, tmpdir, platform } from "os"
 import { join, isAbsolute, extname, basename, resolve } from "path"
 import type { SupportedSites, AudioFormats, WhisperModels, TTSEngine } from "./types"
@@ -239,17 +239,28 @@ export function sanitizeFilename(name: string): string {
 // Security Validation
 // ============================================================================
 
+const BLOCKED_PATH_RE = /^\/(etc|proc|sys|dev|boot)\//
+
+function isBlockedPath(p: string): boolean {
+  if (BLOCKED_PATH_RE.test(p)) return true
+  const home = homedir()
+  if (p.startsWith(home + "/.ssh") || p.startsWith(home + "/.gnupg")) return true
+  return false
+}
+
 /**
  * Validate and resolve a file path, blocking sensitive system paths.
+ * Follows symlinks to ensure the real target is also safe.
  * Returns the resolved absolute path, or null if blocked/invalid.
  */
 export function validateFilePath(filePath: string): string | null {
   const resolved = resolve(filePath)
-  if (/^\/(etc|proc|sys|dev|boot)\//.test(resolved)) return null
-  const home = homedir()
-  if (resolved.startsWith(home + "/.ssh") || resolved.startsWith(home + "/.gnupg")) return null
+  if (isBlockedPath(resolved)) return null
   try {
     if (!statSync(resolved).isFile()) return null
+    // Follow symlinks and re-check the real path
+    const real = realpathSync(resolved)
+    if (isBlockedPath(real)) return null
   } catch {
     return null
   }
@@ -264,6 +275,26 @@ export function isSafeUrl(url: string): boolean {
   if (!url || typeof url !== "string") return false
   const lower = url.toLowerCase().trimStart()
   return !lower.startsWith("file:") && !lower.startsWith("data:") && !lower.startsWith("javascript:")
+}
+
+/**
+ * Validate a URL for server-side fetching (e.g., thumbnail downloads).
+ * Blocks private/internal network addresses to prevent SSRF.
+ */
+export function isSafeFetchUrl(url: string): boolean {
+  if (!isSafeUrl(url)) return false
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    if (host === "localhost" || host === "127.0.0.1" ||
+        host === "::1" || host === "[::1]" ||
+        host === "0.0.0.0" || host === "169.254.169.254" ||
+        host.startsWith("10.") || host.startsWith("192.168.") ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        host.endsWith(".internal") || host.endsWith(".local")) return false
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ============================================================================

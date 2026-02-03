@@ -511,3 +511,39 @@ describe("Security: path traversal", () => {
     expect(data.error).toContain("file path")
   })
 })
+
+describe("Security: SSRF protection", () => {
+  test("rejects private network thumbnailUrl on /api/metadata/embed", async () => {
+    const tmp = "/tmp/tapir_test_ssrf.mp4"
+    require("fs").writeFileSync(tmp, "fake-video-data")
+    try {
+      const res = await fetch(`${baseUrl}/api/metadata/embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: tmp, thumbnailUrl: "http://169.254.169.254/latest/meta-data/" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Thumbnail URL")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+
+  test("rejects localhost thumbnailUrl on /api/metadata/embed", async () => {
+    const tmp = "/tmp/tapir_test_ssrf2.mp4"
+    require("fs").writeFileSync(tmp, "fake-video-data")
+    try {
+      const res = await fetch(`${baseUrl}/api/metadata/embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: tmp, thumbnailUrl: "http://127.0.0.1:8080/secret" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Thumbnail URL")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+})

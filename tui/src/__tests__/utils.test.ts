@@ -31,6 +31,7 @@ import {
   parseSubtitleToText,
   validateFilePath,
   isSafeUrl,
+  isSafeFetchUrl,
 } from "../utils"
 
 // ============================================================================
@@ -660,5 +661,75 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl("")).toBe(false)
     expect(isSafeUrl(null as any)).toBe(false)
     expect(isSafeUrl(undefined as any)).toBe(false)
+  })
+})
+
+// ============================================================================
+// Security: isSafeFetchUrl (SSRF protection)
+// ============================================================================
+
+describe("isSafeFetchUrl", () => {
+  test("blocks localhost", () => {
+    expect(isSafeFetchUrl("http://localhost/admin")).toBe(false)
+    expect(isSafeFetchUrl("http://127.0.0.1/secret")).toBe(false)
+    expect(isSafeFetchUrl("http://[::1]/api")).toBe(false)
+    expect(isSafeFetchUrl("http://0.0.0.0/")).toBe(false)
+  })
+
+  test("blocks AWS metadata endpoint", () => {
+    expect(isSafeFetchUrl("http://169.254.169.254/latest/meta-data/")).toBe(false)
+  })
+
+  test("blocks private network ranges", () => {
+    expect(isSafeFetchUrl("http://10.0.0.1/")).toBe(false)
+    expect(isSafeFetchUrl("http://192.168.1.1/")).toBe(false)
+    expect(isSafeFetchUrl("http://172.16.0.1/")).toBe(false)
+    expect(isSafeFetchUrl("http://172.31.255.255/")).toBe(false)
+  })
+
+  test("blocks .internal and .local domains", () => {
+    expect(isSafeFetchUrl("http://service.internal/")).toBe(false)
+    expect(isSafeFetchUrl("http://printer.local/")).toBe(false)
+  })
+
+  test("blocks file:// and data: schemes", () => {
+    expect(isSafeFetchUrl("file:///etc/passwd")).toBe(false)
+    expect(isSafeFetchUrl("data:text/html,test")).toBe(false)
+  })
+
+  test("allows public URLs", () => {
+    expect(isSafeFetchUrl("https://i.ytimg.com/vi/abc/thumb.jpg")).toBe(true)
+    expect(isSafeFetchUrl("https://example.com/image.png")).toBe(true)
+  })
+
+  test("rejects non-URL strings", () => {
+    expect(isSafeFetchUrl("not-a-url")).toBe(false)
+    expect(isSafeFetchUrl("")).toBe(false)
+  })
+})
+
+// ============================================================================
+// Security: validateFilePath symlink resolution
+// ============================================================================
+
+describe("validateFilePath symlink handling", () => {
+  test("blocks symlinks pointing to /etc/", () => {
+    const linkPath = join(tmpdir(), "tapir_symlink_test_" + Date.now())
+    try {
+      require("fs").symlinkSync("/etc/passwd", linkPath)
+      expect(validateFilePath(linkPath)).toBeNull()
+    } finally {
+      try { require("fs").unlinkSync(linkPath) } catch {}
+    }
+  })
+
+  test("blocks symlinks pointing to /proc/", () => {
+    const linkPath = join(tmpdir(), "tapir_symlink_test2_" + Date.now())
+    try {
+      require("fs").symlinkSync("/proc/version", linkPath)
+      expect(validateFilePath(linkPath)).toBeNull()
+    } finally {
+      try { require("fs").unlinkSync(linkPath) } catch {}
+    }
   })
 })

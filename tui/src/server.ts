@@ -12,7 +12,7 @@
  *   bun run src/index.ts --server --port 9000
  */
 
-import { VERSION, validateFilePath, isSafeUrl } from "./utils"
+import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl } from "./utils"
 import {
   getVideoInfo,
   downloadVideo,
@@ -284,7 +284,7 @@ async function handleRequest(req: Request): Promise<Response> {
   if (path === "/api/search" && method === "POST") {
     const body = await parseBody(req)
     const query = body.query as string
-    const maxResults = (body.maxResults as number) || 10
+    const maxResults = Math.min((body.maxResults as number) || 10, 25)
 
     if (!query) return errorResponse("Missing 'query' field")
 
@@ -447,6 +447,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (!file) return errorResponse("Missing 'file' field")
     if (!validateFilePath(file)) return errorResponse("Invalid or inaccessible file path")
+    if (thumbnailUrl && !isSafeFetchUrl(thumbnailUrl)) return errorResponse("Thumbnail URL not allowed")
 
     const result = await embedMetadata(file, {
       title,
