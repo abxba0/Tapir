@@ -7,7 +7,7 @@
  */
 
 import { $ } from "bun"
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "fs"
 import { homedir, platform, release } from "os"
 import { join } from "path"
 
@@ -343,7 +343,9 @@ export async function installDependency(
   }
 
   // Try each command in order until one succeeds
-  for (const cmd of commands) {
+  const lastIdx = commands.length - 1
+  for (let i = 0; i < commands.length; i++) {
+    const cmd = commands[i]
     // Skip comment-only commands
     if (cmd.startsWith("#")) continue
 
@@ -361,11 +363,11 @@ export async function installDependency(
         return { success: true, output: stdout || "Installed successfully" }
       }
       // If this command failed, try the next one
-      if (commands.indexOf(cmd) === commands.length - 1) {
+      if (i === lastIdx) {
         return { success: false, output: stderr || stdout || `Command failed with exit code ${exitCode}` }
       }
     } catch (err: any) {
-      if (commands.indexOf(cmd) === commands.length - 1) {
+      if (i === lastIdx) {
         return { success: false, output: err.message || "Installation failed" }
       }
     }
@@ -390,7 +392,9 @@ export async function uninstallDependency(
     return { success: false, output: `No uninstall command available for ${osDisplayName(os)}` }
   }
 
-  for (const cmd of commands) {
+  const lastIdx = commands.length - 1
+  for (let i = 0; i < commands.length; i++) {
+    const cmd = commands[i]
     if (cmd.startsWith("#")) continue
 
     try {
@@ -406,11 +410,11 @@ export async function uninstallDependency(
       if (exitCode === 0) {
         return { success: true, output: stdout || "Uninstalled successfully" }
       }
-      if (commands.indexOf(cmd) === commands.length - 1) {
+      if (i === lastIdx) {
         return { success: false, output: stderr || stdout || `Command failed with exit code ${exitCode}` }
       }
     } catch (err: any) {
-      if (commands.indexOf(cmd) === commands.length - 1) {
+      if (i === lastIdx) {
         return { success: false, output: err.message || "Uninstall failed" }
       }
     }
@@ -428,7 +432,6 @@ export function getConfigDir(): string {
 }
 
 export function cleanupTapirConfig(): { removed: string[]; errors: string[] } {
-  const { rmSync } = require("fs")
   const removed: string[] = []
   const errors: string[] = []
 

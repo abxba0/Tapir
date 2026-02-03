@@ -6,7 +6,7 @@ import { $ } from "bun"
 import { existsSync, mkdirSync, accessSync, constants, statSync, readdirSync, unlinkSync } from "fs"
 import { homedir, tmpdir, platform } from "os"
 import { join, isAbsolute, extname, basename } from "path"
-import type { SupportedSites, AudioFormats, WhisperModels } from "./types"
+import type { SupportedSites, AudioFormats, WhisperModels, TTSEngine } from "./types"
 
 // ============================================================================
 // Constants
@@ -24,6 +24,10 @@ export const SUPPORTED_MEDIA_EXTENSIONS = {
 } as const
 
 export const TRANSCRIPTION_FORMATS = ["txt", "srt", "vtt"] as const
+
+export const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".txt", ".md", ".rst", ".html", ".htm", ".csv", ".log"] as const
+export const TTS_OUTPUT_FORMATS = ["mp3", "wav"] as const
+export const TTS_CHUNK_MAX_CHARS = 5000
 
 // ============================================================================
 // Site Detection
@@ -119,15 +123,17 @@ export function isValidUrl(url: string): boolean {
   return true
 }
 
+// Precompiled YouTube URL patterns (avoid re-creating RegExp objects on every call)
+const YOUTUBE_URL_PATTERNS = [
+  /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]{11}/,
+  /^(https?:\/\/)?(www\.)?youtu\.be\/[\w-]{11}/,
+  /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/[\w-]{11}/,
+  /^(https?:\/\/)?(www\.)?youtube\.com\/(playlist\?list=|watch\?.*&list=)/,
+  /^(https?:\/\/)?(www\.)?youtube\.com\/(channel\/|c\/|user\/|@)/,
+] as const
+
 export function isValidYoutubeUrl(url: string): boolean {
-  const patterns = [
-    /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]{11}/,
-    /^(https?:\/\/)?(www\.)?youtu\.be\/[\w-]{11}/,
-    /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/[\w-]{11}/,
-    /^(https?:\/\/)?(www\.)?youtube\.com\/(playlist\?list=|watch\?.*&list=)/,
-    /^(https?:\/\/)?(www\.)?youtube\.com\/(channel\/|c\/|user\/|@)/,
-  ]
-  return patterns.some((p) => p.test(url))
+  return YOUTUBE_URL_PATTERNS.some((p) => p.test(url))
 }
 
 // ============================================================================
@@ -209,12 +215,17 @@ export function getDownloadDirectory(specifiedDir: string = "youtube_downloads")
   return fallback
 }
 
+// Pre-built set of all media extensions for O(1) lookup
+const ALL_MEDIA_EXTENSIONS = new Set<string>([
+  ...SUPPORTED_MEDIA_EXTENSIONS.audio,
+  ...SUPPORTED_MEDIA_EXTENSIONS.video,
+])
+
 export function isLocalMediaFile(path: string): boolean {
   try {
     if (!existsSync(path)) return false
     const ext = extname(path).toLowerCase()
-    const allExts = [...SUPPORTED_MEDIA_EXTENSIONS.audio, ...SUPPORTED_MEDIA_EXTENSIONS.video]
-    return allExts.includes(ext as any)
+    return ALL_MEDIA_EXTENSIONS.has(ext)
   } catch {
     return false
   }
@@ -287,6 +298,84 @@ export function getWhisperModels(): WhisperModels {
     small: { name: "Small", description: "Good balance of speed and accuracy (~2GB VRAM)", sizeMb: 466 },
     medium: { name: "Medium", description: "High accuracy, slower (~5GB VRAM)", sizeMb: 1500 },
     large: { name: "Large", description: "Best accuracy, slowest (~10GB VRAM)", sizeMb: 2900 },
+  }
+}
+
+// ============================================================================
+// Subtitle Parsing
+// ============================================================================
+
+// ============================================================================
+// TTS Engine Detection
+// ============================================================================
+
+export async function checkEdgeTts(): Promise<boolean> {
+  try {
+    const result = await $`edge-tts --help`.quiet()
+    return result.exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+export async function checkGtts(): Promise<boolean> {
+  try {
+    const result = await $`gtts-cli --help`.quiet()
+    return result.exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+export async function checkEspeak(): Promise<boolean> {
+  try {
+    const result = await $`espeak --version`.quiet()
+    return result.exitCode === 0
+  } catch {
+    try {
+      const result = await $`espeak-ng --version`.quiet()
+      return result.exitCode === 0
+    } catch {
+      return false
+    }
+  }
+}
+
+export async function detectAvailableTtsEngine(): Promise<TTSEngine | null> {
+  // Run all checks in parallel, then pick the first available by priority
+  const [hasEdge, hasGtts, hasEspeak] = await Promise.all([
+    checkEdgeTts(),
+    checkGtts(),
+    checkEspeak(),
+  ])
+  if (hasEdge) return "edge-tts"
+  if (hasGtts) return "gtts"
+  if (hasEspeak) return "espeak"
+  return null
+}
+
+export async function checkPdfToText(): Promise<boolean> {
+  try {
+    const result = await $`pdftotext -v`.quiet()
+    return true // pdftotext -v prints to stderr even on success
+  } catch {
+    // pdftotext -v exits with non-zero but still works
+    try {
+      const result = await $`which pdftotext`.quiet()
+      return result.exitCode === 0
+    } catch {
+      return false
+    }
+  }
+}
+
+export function isSupportedDocumentFile(path: string): boolean {
+  try {
+    if (!existsSync(path)) return false
+    const ext = extname(path).toLowerCase()
+    return (SUPPORTED_DOCUMENT_EXTENSIONS as readonly string[]).includes(ext)
+  } catch {
+    return false
   }
 }
 

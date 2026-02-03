@@ -197,15 +197,16 @@ export async function downloadVideo(options: DownloadOptions): Promise<DownloadR
       stderr: "pipe",
     })
 
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
+    const [, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).arrayBuffer(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
 
     if (exitCode === 0) {
       return { url, success: true, message: "Download completed successfully", outputDir: safeDir }
-    } else {
-      return { url, success: false, message: stderr.trim() || "Download failed" }
     }
+    return { url, success: false, message: stderr.trim() || "Download failed" }
   } catch (err) {
     return { url, success: false, message: `Download error: ${err}` }
   }
@@ -332,7 +333,6 @@ export async function downloadParallel(
   cookiesFromBrowser?: string,
   archiveFile?: string,
 ): Promise<DownloadResult[]> {
-  const { DEFAULT_MAX_WORKERS } = await import("../utils")
   const workers = Math.min(Math.max(1, maxWorkers), MAX_WORKERS_LIMIT)
   const results: DownloadResult[] = []
 
@@ -372,55 +372,59 @@ const MAX_WORKERS_LIMIT = 10
  *   [Merger] Merging formats into "/path/to/file.mp4"
  */
 export function parseProgressLine(line: string): DownloadProgress {
-  // Percentage + size + speed + ETA
-  const progressMatch = line.match(
-    /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+\s*\S+)\s+at\s+([\d.]+\s*\S+\/s)\s+ETA\s+(\S+)/,
-  )
-  if (progressMatch) {
-    return {
-      phase: "downloading",
-      percent: parseFloat(progressMatch[1]),
-      totalSize: progressMatch[2].trim(),
-      speed: progressMatch[3].trim(),
-      eta: progressMatch[4].trim(),
-      raw: line,
+  // Fast path: prefix check before regex for the most common line type
+  if (line.startsWith("[download]")) {
+    if (line.includes("% of")) {
+      if (line.includes("100%")) {
+        const doneMatch = line.match(/\[download\]\s+100%\s+of\s+~?([\d.]+\s*\S+)/)
+        if (doneMatch) {
+          return {
+            phase: "downloading",
+            percent: 100,
+            totalSize: doneMatch[1].trim(),
+            speed: "",
+            eta: "00:00",
+            raw: line,
+          }
+        }
+      }
+
+      const progressMatch = line.match(
+        /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+\s*\S+)\s+at\s+([\d.]+\s*\S+\/s)\s+ETA\s+(\S+)/,
+      )
+      if (progressMatch) {
+        return {
+          phase: "downloading",
+          percent: parseFloat(progressMatch[1]),
+          totalSize: progressMatch[2].trim(),
+          speed: progressMatch[3].trim(),
+          eta: progressMatch[4].trim(),
+          raw: line,
+        }
+      }
+    }
+
+    if (line.includes("Destination:")) {
+      return { phase: "downloading", percent: 0, raw: line }
+    }
+
+    if (line.includes("Writing video subtitles")) {
+      return { phase: "subtitles", percent: 100, raw: line }
     }
   }
 
-  // 100% completed line
-  const doneMatch = line.match(/\[download\]\s+100%\s+of\s+~?([\d.]+\s*\S+)/)
-  if (doneMatch) {
-    return {
-      phase: "downloading",
-      percent: 100,
-      totalSize: doneMatch[1].trim(),
-      speed: "",
-      eta: "00:00",
-      raw: line,
-    }
-  }
-
-  // Destination line
-  if (line.includes("[download] Destination:")) {
-    return { phase: "downloading", percent: 0, raw: line }
-  }
-
-  // Merging
-  if (line.includes("[Merger]") || line.includes("Merging formats")) {
+  if (line.startsWith("[Merger]") || line.includes("Merging formats")) {
     return { phase: "merging", percent: 100, raw: line }
   }
 
-  // Extracting audio
-  if (line.includes("[ExtractAudio]") || line.includes("Post-process")) {
+  if (line.startsWith("[ExtractAudio]") || line.includes("Post-process")) {
     return { phase: "post_processing", percent: 100, raw: line }
   }
 
-  // Writing subtitles
-  if (line.includes("[info] Writing video subtitles") || line.includes("[download] Writing video subtitles")) {
+  if (line.startsWith("[info]") && line.includes("Writing video subtitles")) {
     return { phase: "subtitles", percent: 100, raw: line }
   }
 
-  // Already downloaded
   if (line.includes("has already been downloaded")) {
     return { phase: "done", percent: 100, raw: line }
   }

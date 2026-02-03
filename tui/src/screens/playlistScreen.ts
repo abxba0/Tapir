@@ -487,17 +487,17 @@ async function startPlaylistDownload(format: string) {
 
       // Metadata embedding
       if (result.outputDir) {
-        try {
-          const meta = extractMetadata(entry, entryUrl)
-          const latestFile = findLatestFile(result.outputDir)
-          if (latestFile) {
+        const latestFile = findLatestFile(result.outputDir)
+        if (latestFile) {
+          try {
+            const meta = extractMetadata(entry, entryUrl)
             await embedMetadata(latestFile, meta, { embedThumbnail: true })
-          }
-        } catch { /* non-critical */ }
+          } catch { /* non-critical */ }
+        }
 
         try {
           await runHook("post-download", {
-            file: findLatestFile(result.outputDir) || undefined,
+            file: latestFile || undefined,
             title: entry.title,
             url: entryUrl,
             format,

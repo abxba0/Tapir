@@ -26,7 +26,7 @@ import { colors, layout } from "../components/theme"
 import { VERSION } from "../utils"
 
 export interface MainMenuResult {
-  choice: "download" | "search" | "playlist" | "batch" | "convert" | "transcribe" | "settings" | "setup" | "uninstall" | "exit"
+  choice: "download" | "search" | "playlist" | "batch" | "convert" | "transcribe" | "tts" | "settings" | "setup" | "uninstall" | "exit"
 }
 
 export interface MainMenuState {
@@ -79,6 +79,11 @@ const menuOptions: SelectOption[] = [
     name: "Transcribe Media",
     description: "Get transcriptions from URLs or local audio/video files",
     value: "transcribe",
+  },
+  {
+    name: "Text to Speech",
+    description: "Convert PDF, TXT, and other documents to speech audio",
+    value: "tts",
   },
   {
     name: "Settings",

@@ -20,6 +20,7 @@ import {
   searchYouTube,
 } from "./services/downloader"
 import { convertAudioFile } from "./services/converter"
+import { textToSpeech } from "./services/tts"
 import { embedMetadata, extractMetadata, findLatestFile } from "./services/metadata"
 import { runHook, ensurePluginDirs, getPluginSummary } from "./services/plugins"
 import type { DownloadProgress, DownloadResult, VideoInfo } from "./types"
@@ -30,7 +31,7 @@ import type { DownloadProgress, DownloadResult, VideoInfo } from "./types"
 
 interface QueuedJob {
   id: string
-  type: "download" | "convert" | "transcribe"
+  type: "download" | "convert" | "transcribe" | "tts"
   status: "queued" | "running" | "completed" | "failed"
   createdAt: number
   startedAt?: number
@@ -100,21 +101,17 @@ async function processDownloadJob(job: QueuedJob): Promise<void> {
 
     job.result = { ...result } as unknown as Record<string, unknown>
 
-    // Post-download: metadata embedding
-    if (result.success && result.outputDir && (req.embedMetadata !== false) && info) {
+    const latestFile = (result.success && result.outputDir) ? findLatestFile(result.outputDir) : null
+
+    if (latestFile && req.embedMetadata !== false && info) {
       const meta = extractMetadata(info, req.url)
-      const latestFile = findLatestFile(result.outputDir)
-      if (latestFile) {
-        const embedResult = await embedMetadata(latestFile, meta, {
-          embedThumbnail: req.embedThumbnail !== false,
-        })
-        ;(job.result as any).metadataEmbed = embedResult
-      }
+      const embedResult = await embedMetadata(latestFile, meta, {
+        embedThumbnail: req.embedThumbnail !== false,
+      })
+      ;(job.result as any).metadataEmbed = embedResult
     }
 
-    // Post-download: plugins
     if (result.success && result.outputDir) {
-      const latestFile = findLatestFile(result.outputDir)
       const pluginResults = await runHook("post-download", {
         file: latestFile || undefined,
         title: info?.title,
@@ -177,6 +174,38 @@ async function processConvertJob(job: QueuedJob): Promise<void> {
   job.completedAt = Date.now()
 }
 
+async function processTtsJob(job: QueuedJob): Promise<void> {
+  job.status = "running"
+  job.startedAt = Date.now()
+
+  const req = job.request as {
+    inputFile: string
+    voice?: string
+    outputFormat?: string
+    outputDir?: string
+    engine?: string
+  }
+
+  try {
+    const result = await textToSpeech({
+      inputFile: req.inputFile,
+      voice: req.voice,
+      outputFormat: (req.outputFormat as "mp3" | "wav") || "mp3",
+      outputDir: req.outputDir || "youtube_downloads",
+      engine: req.engine as any,
+    })
+
+    job.result = { ...result } as unknown as Record<string, unknown>
+    job.status = result.success ? "completed" : "failed"
+    if (!result.success) job.error = result.message
+  } catch (err: any) {
+    job.status = "failed"
+    job.error = err.message || String(err)
+  }
+
+  job.completedAt = Date.now()
+}
+
 // ============================================================================
 // Route helpers
 // ============================================================================
@@ -227,17 +256,16 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // Health check
   if (path === "/api/health" && method === "GET") {
+    const counts = { queued: 0, running: 0, completed: 0, failed: 0 }
+    for (const job of jobs.values()) {
+      counts[job.status]++
+    }
+
     return jsonResponse({
       status: "ok",
       version: VERSION,
       uptime: process.uptime(),
-      jobs: {
-        total: jobs.size,
-        queued: [...jobs.values()].filter((j) => j.status === "queued").length,
-        running: [...jobs.values()].filter((j) => j.status === "running").length,
-        completed: [...jobs.values()].filter((j) => j.status === "completed").length,
-        failed: [...jobs.values()].filter((j) => j.status === "failed").length,
-      },
+      jobs: { total: jobs.size, ...counts },
     })
   }
 
@@ -313,6 +341,33 @@ async function handleRequest(req: Request): Promise<Response> {
     jobs.set(job.id, job)
 
     processConvertJob(job).catch(() => {
+      job.status = "failed"
+      job.completedAt = Date.now()
+    })
+
+    return jsonResponse({ jobId: job.id, status: "queued" }, 202)
+  }
+
+  // Queue text-to-speech
+  if (path === "/api/tts" && method === "POST") {
+    const body = await parseBody(req)
+    const inputFile = body.inputFile as string
+
+    if (!inputFile) {
+      return errorResponse("Missing 'inputFile' field")
+    }
+
+    const job: QueuedJob = {
+      id: generateJobId(),
+      type: "tts",
+      status: "queued",
+      createdAt: Date.now(),
+      request: body,
+    }
+
+    jobs.set(job.id, job)
+
+    processTtsJob(job).catch(() => {
       job.status = "failed"
       job.completedAt = Date.now()
     })
@@ -413,6 +468,7 @@ export function startServer(port: number = 8384): void {
 │    POST /api/info            Video info          │
 │    POST /api/download        Queue download      │
 │    POST /api/convert         Queue conversion    │
+│    POST /api/tts             Queue text-to-speech│
 │    GET  /api/jobs            List all jobs       │
 │    GET  /api/jobs/:id        Get job status      │
 │    DELETE /api/jobs/:id      Delete a job        │

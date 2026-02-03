@@ -1,6 +1,6 @@
 # Tapir TUI
 
-The TypeScript terminal UI for [Tapir](../README.md) -- download videos, convert audio, and transcribe media, all from the terminal. Built with [OpenTUI](https://opentui.com) and powered by [Bun](https://bun.sh).
+The TypeScript terminal UI for [Tapir](../README.md) -- download videos, convert audio, transcribe media, and convert documents to speech, all from the terminal. Built with [OpenTUI](https://opentui.com) and powered by [Bun](https://bun.sh).
 
 ## Prerequisites
 
@@ -17,9 +17,15 @@ The TypeScript terminal UI for [Tapir](../README.md) -- download videos, convert
 |------------|---------|---------|---------|
 | **[FFmpeg](https://ffmpeg.org)** | >= 5.0 | Audio conversion, high-quality downloads, stream merging | See [FFmpeg install](#installing-ffmpeg) |
 | **[OpenAI Whisper](https://github.com/openai/whisper)** | >= 20231117 | Local speech-to-text transcription | `pip install openai-whisper` |
+| **[edge-tts](https://github.com/rany2/edge-tts)** | latest | Text-to-speech (highest quality, recommended) | `pip install edge-tts` |
+| **[gTTS](https://github.com/pndurette/gTTS)** | latest | Text-to-speech (Google TTS, fallback) | `pip install gTTS` |
+| **[espeak](https://espeak.sourceforge.net/)** | any | Text-to-speech (offline, lowest quality) | `sudo apt install espeak-ng` |
+| **[poppler-utils](https://poppler.freedesktop.org/)** | any | PDF text extraction for TTS | `sudo apt install poppler-utils` |
 
 > Without FFmpeg, video downloads still work but audio conversion and high-quality merging are unavailable.
 > Without Whisper, transcription falls back to extracting existing subtitles from the URL (if available).
+> Without a TTS engine, the Text to Speech feature is unavailable. Install at least one (edge-tts recommended).
+> Without poppler-utils, PDF documents cannot be converted to speech (other formats still work).
 
 ### System Requirements
 
@@ -32,8 +38,8 @@ The TypeScript terminal UI for [Tapir](../README.md) -- download videos, convert
 
 ```bash
 # Clone the repository (if you haven't already)
-git clone https://github.com/abxba0/YT-video-downloader.git
-cd YT-video-downloader/tui
+git clone https://github.com/abxba0/Tapir.git
+cd Tapir/tui
 
 # Install dependencies
 bun install
@@ -77,11 +83,17 @@ bun start
 bun run src/index.ts
 ```
 
-This launches the interactive terminal UI with four options:
+This launches the interactive terminal UI with the following options:
 1. **Download Video** - Download from YouTube, Instagram, TikTok, Vimeo, and 1800+ sites
-2. **Convert Audio** - Convert between MP3, AAC, M4A, OGG, WAV, and FLAC
-3. **Transcribe Media** - Transcribe audio/video from a URL or local file
-4. **Exit**
+2. **Search YouTube** - Search and download directly from search results
+3. **Browse Playlist** - Browse playlist contents and download selected videos
+4. **Batch Download** - Queue multiple URLs for sequential download
+5. **Convert Audio** - Convert between MP3, AAC, M4A, OGG, WAV, and FLAC
+6. **Transcribe Media** - Transcribe audio/video from a URL or local file
+7. **Text to Speech** - Convert PDF, TXT, and other documents to speech audio
+8. **Settings** - Configure output directory, auto-update checks, and more
+9. **Setup** - Install or check required/optional dependencies
+10. **Uninstall** - Remove Tapir dependencies and configuration
 
 ### Command-Line Mode
 
@@ -96,9 +108,54 @@ bun start -- --convert /path/to/audio.mp3
 bun start -- --transcribe "https://youtube.com/watch?v=VIDEO_ID"
 bun start -- --transcribe /path/to/video.mp4
 
+# Convert a document to speech
+bun start -- --tts /path/to/document.pdf
+bun start -- --tts /path/to/notes.txt
+
+# Run dependency setup
+bun start -- --setup
+
 # Show help
 bun start -- --help
 ```
+
+### Server Mode (REST API)
+
+Run Tapir as a background HTTP service for external tools, scripts, or web UIs:
+
+```bash
+# Start on default port 8384
+bun start -- --server
+
+# Custom port
+bun start -- --server --port 9000
+```
+
+Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check and job stats |
+| POST | `/api/search` | YouTube search |
+| POST | `/api/info` | Get video info |
+| POST | `/api/download` | Queue a download |
+| POST | `/api/convert` | Queue audio conversion |
+| POST | `/api/tts` | Queue text-to-speech |
+| GET | `/api/jobs` | List all jobs |
+| GET | `/api/jobs/:id` | Get job status |
+| DELETE | `/api/jobs/:id` | Delete a job |
+| GET | `/api/plugins` | List installed plugins |
+| POST | `/api/metadata/embed` | Embed metadata into file |
+
+### MCP Mode (AI Agents)
+
+Run as an MCP server for AI agents (e.g., Claude) via stdio:
+
+```bash
+bun start -- --mcp
+```
+
+Available tools: `search_youtube`, `get_video_info`, `download_video`, `convert_audio`, `text_to_speech`, `embed_metadata`, `list_plugins`.
 
 ### Development Mode
 
@@ -125,9 +182,25 @@ bun run typecheck
 ### Video Download
 - Download from YouTube, Vimeo, SoundCloud, Instagram, TikTok, Twitch, Bandcamp, and 1800+ sites
 - Format and quality selection
-- Playlist and channel support
-- Real-time progress display
+- Subtitle download with language selection
+- Real-time progress display with speed, ETA, and progress bar
+- Automatic metadata embedding (title, artist, thumbnail)
 - Cookies support for restricted content
+
+### YouTube Search
+- Search YouTube directly from the TUI
+- Browse results with titles, channels, durations, and view counts
+- Download directly from search results
+
+### Playlist & Channel Browsing
+- Browse playlist contents with video details
+- Select format and download all entries with per-video progress
+- Automatic archive tracking to avoid re-downloading
+
+### Batch Download
+- Queue multiple URLs for sequential download
+- Add URLs one at a time or paste a list
+- Per-item status tracking (queued, downloading, success, failed)
 
 ### Audio Conversion
 - Convert between MP3, AAC, M4A, OGG, WAV, and FLAC
@@ -141,6 +214,36 @@ bun run typecheck
 - Output formats: plain text (TXT), SRT (with timestamps), VTT (with timestamps)
 - Five Whisper model sizes to choose from
 
+### Text to Speech
+- Convert PDF, TXT, MD, HTML, RST, CSV, and LOG documents to speech audio
+- PDF text extraction via pdftotext (poppler-utils)
+- Three TTS engine options: edge-tts (recommended), gTTS, espeak
+- Voice selection with multiple languages and genders
+- Output as MP3 or WAV
+- Automatic text chunking for large documents with sentence-boundary splitting
+- Multi-chunk audio concatenation via ffmpeg
+
+### Metadata Embedding
+- Automatically embeds title, artist, and thumbnail into downloaded files
+- Supports MP4, MP3, M4A, and MKV formats
+- Uses ffmpeg for tag writing
+
+### Plugin System
+- Drop scripts into `~/.config/tapir/plugins/{hook}/` to run automatically
+- Hooks: `post-download`, `post-convert`, `post-transcribe`
+- Supported script types: `.sh`, `.js`, `.ts`, `.py`
+
+### REST API Server
+- Run Tapir as a background HTTP service
+- Queue downloads, conversions, and TTS jobs
+- Poll job status and results
+- CORS-enabled for web UI integration
+
+### MCP Server
+- Model Context Protocol server for AI agent interaction
+- Communicate via JSON-RPC 2.0 over stdio
+- Tools for search, download, convert, TTS, metadata, and plugins
+
 ## Project Structure
 
 ```
@@ -153,17 +256,43 @@ tui/
     ├── index.ts            # Entry point, CLI parsing, app loop
     ├── types.ts            # TypeScript interfaces and type definitions
     ├── utils.ts            # Shared utilities, constants, formatting
+    ├── server.ts           # REST API server (daemon mode)
+    ├── mcp.ts              # MCP server for AI agents (stdio)
     ├── components/
     │   └── theme.ts        # Color palette and layout constants
     ├── screens/
-    │   ├── mainMenu.ts     # Main menu screen
+    │   ├── mainMenu.ts         # Main menu screen
     │   ├── downloadScreen.ts   # Video download screen
+    │   ├── searchScreen.ts     # YouTube search screen
+    │   ├── playlistScreen.ts   # Playlist browser screen
+    │   ├── batchScreen.ts      # Batch download screen
     │   ├── convertScreen.ts    # Audio conversion screen
-    │   └── transcribeScreen.ts # Transcription screen
-    └── services/
-        ├── downloader.ts   # yt-dlp wrapper for video downloads
-        ├── converter.ts    # FFmpeg wrapper for audio conversion
-        └── transcriber.ts  # Whisper + subtitle extraction
+    │   ├── transcribeScreen.ts # Transcription screen
+    │   ├── ttsScreen.ts        # Text-to-speech screen
+    │   ├── settingsScreen.ts   # Settings screen
+    │   ├── setupScreen.ts      # Dependency setup screen
+    │   └── uninstallScreen.ts  # Uninstall screen
+    ├── services/
+    │   ├── downloader.ts   # yt-dlp wrapper for video downloads
+    │   ├── converter.ts    # FFmpeg wrapper for audio conversion
+    │   ├── transcriber.ts  # Whisper + subtitle extraction
+    │   ├── tts.ts          # Text-to-speech engine wrapper
+    │   ├── metadata.ts     # Metadata embedding (ID3/MP4 tags)
+    │   ├── plugins.ts      # Plugin system (post-download hooks)
+    │   ├── settings.ts     # User settings persistence
+    │   ├── setup.ts        # OS detection and dependency management
+    │   └── updater.ts      # yt-dlp version checking
+    └── __tests__/          # Test suites (400+ tests)
+        ├── downloader.test.ts
+        ├── converter.test.ts
+        ├── transcriber.test.ts
+        ├── tts.test.ts
+        ├── metadata.test.ts
+        ├── plugins.test.ts
+        ├── settings.test.ts
+        ├── setup.test.ts
+        ├── mcp.test.ts
+        └── utils.test.ts
 ```
 
 ## Supported Sites

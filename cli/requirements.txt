@@ -1,7 +1,0 @@
-yt-dlp>=2023.0.0
-textual>=0.47.0
-rich>=13.7.0
-pyperclip>=1.8.2
-thefuzz>=0.20.0
-python-Levenshtein>=0.25.0
-openai-whisper>=20231117

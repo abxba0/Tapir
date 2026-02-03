@@ -562,20 +562,17 @@ async function handleDownload(format: string) {
     if (progressBarText) progressBarText.content = renderProgressBar(100)
     if (progressText) progressText.content = "Download finished. Embedding metadata..."
 
-    // Post-download: embed metadata (title, artist, thumbnail)
     let metaNote = ""
-    if (result.outputDir && currentInfo) {
+    const latestFile = result.outputDir ? findLatestFile(result.outputDir) : null
+    if (latestFile && currentInfo) {
       try {
         const meta = extractMetadata(currentInfo, currentUrl)
-        const latestFile = findLatestFile(result.outputDir)
-        if (latestFile) {
-          const embedResult = await embedMetadata(latestFile, meta, { embedThumbnail: true })
-          if (embedResult.success) {
-            metaNote = "\nMetadata: embedded (title, artist, thumbnail)"
-          }
+        const embedResult = await embedMetadata(latestFile, meta, { embedThumbnail: true })
+        if (embedResult.success) {
+          metaNote = "\nMetadata: embedded (title, artist, thumbnail)"
         }
       } catch {
-        // Non-critical - metadata embedding failure doesn't affect download
+        // Non-critical
       }
     }
 
@@ -584,7 +581,6 @@ async function handleDownload(format: string) {
     if (result.outputDir) {
       try {
         if (progressText) progressText.content = "Running post-download plugins..."
-        const latestFile = findLatestFile(result.outputDir)
         const pluginResults = await runHook("post-download", {
           file: latestFile || undefined,
           title: currentInfo?.title,

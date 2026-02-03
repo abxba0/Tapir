@@ -173,6 +173,39 @@ export interface TranscriptionOptions {
 }
 
 // ============================================================================
+// Text-to-Speech Types
+// ============================================================================
+
+export type TTSEngine = "edge-tts" | "gtts" | "espeak"
+
+export interface TTSVoice {
+  id: string
+  name: string
+  language: string
+  gender?: string
+}
+
+export type TTSOutputFormat = "mp3" | "wav"
+
+export interface TTSOptions {
+  inputFile: string
+  voice?: string
+  outputFormat?: TTSOutputFormat
+  outputDir?: string
+  engine?: TTSEngine
+}
+
+export interface TTSResult {
+  success: boolean
+  outputFile?: string
+  engine: TTSEngine
+  voice: string
+  textLength: number
+  chunkCount: number
+  message: string
+}
+
+// ============================================================================
 // Application State
 // ============================================================================
 
@@ -184,6 +217,7 @@ export type AppScreen =
   | "download_progress"
   | "audio_convert"
   | "transcribe"
+  | "text_to_speech"
   | "settings"
   | "batch"
   | "playlist_browse"
