@@ -384,9 +384,9 @@ async function main() {
         } else {
           // Re-check deps after potential removals
           const [yt, ff, wh] = await Promise.all([
-            import("./utils").then((u) => u.checkYtDlp()),
-            import("./utils").then((u) => u.checkFfmpeg()),
-            import("./utils").then((u) => u.checkWhisper()),
+            checkYtDlp(),
+            checkFfmpeg(),
+            checkWhisper(),
           ])
           state.ytDlpInstalled = yt
           state.ffmpegInstalled = ff
