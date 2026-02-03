@@ -101,17 +101,14 @@ async function processDownloadJob(job: QueuedJob): Promise<void> {
 
     job.result = { ...result } as unknown as Record<string, unknown>
 
-    // Post-download: metadata embedding + plugins
     const latestFile = (result.success && result.outputDir) ? findLatestFile(result.outputDir) : null
 
-    if (result.success && result.outputDir && (req.embedMetadata !== false) && info) {
+    if (latestFile && req.embedMetadata !== false && info) {
       const meta = extractMetadata(info, req.url)
-      if (latestFile) {
-        const embedResult = await embedMetadata(latestFile, meta, {
-          embedThumbnail: req.embedThumbnail !== false,
-        })
-        ;(job.result as any).metadataEmbed = embedResult
-      }
+      const embedResult = await embedMetadata(latestFile, meta, {
+        embedThumbnail: req.embedThumbnail !== false,
+      })
+      ;(job.result as any).metadataEmbed = embedResult
     }
 
     if (result.success && result.outputDir) {
@@ -259,22 +256,16 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // Health check
   if (path === "/api/health" && method === "GET") {
-    // Single pass over jobs to count statuses
-    let queued = 0, running = 0, completed = 0, failed = 0
+    const counts = { queued: 0, running: 0, completed: 0, failed: 0 }
     for (const job of jobs.values()) {
-      switch (job.status) {
-        case "queued": queued++; break
-        case "running": running++; break
-        case "completed": completed++; break
-        case "failed": failed++; break
-      }
+      counts[job.status]++
     }
 
     return jsonResponse({
       status: "ok",
       version: VERSION,
       uptime: process.uptime(),
-      jobs: { total: jobs.size, queued, running, completed, failed },
+      jobs: { total: jobs.size, ...counts },
     })
   }
 

@@ -448,14 +448,13 @@ async function startBatchDownload(format: string) {
       item.message = "Downloaded"
       succeeded++
 
-      // Try metadata embedding
       if (result.outputDir) {
         const latestFile = findLatestFile(result.outputDir)
-        try {
-          if (latestFile) {
+        if (latestFile) {
+          try {
             await embedMetadata(latestFile, { title: item.url }, { embedThumbnail: false })
-          }
-        } catch { /* non-critical */ }
+          } catch { /* non-critical */ }
+        }
 
         try {
           await runHook("post-download", {

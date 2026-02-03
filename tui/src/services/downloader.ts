@@ -197,18 +197,16 @@ export async function downloadVideo(options: DownloadOptions): Promise<DownloadR
       stderr: "pipe",
     })
 
-    // Drain stdout to prevent pipe from blocking, but don't allocate a string
-    const drainStdout = new Response(proc.stdout).arrayBuffer()
-    const stderrPromise = new Response(proc.stderr).text()
-    const exitCode = await proc.exited
-    await drainStdout
+    const [, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).arrayBuffer(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
 
     if (exitCode === 0) {
       return { url, success: true, message: "Download completed successfully", outputDir: safeDir }
-    } else {
-      const stderr = await stderrPromise
-      return { url, success: false, message: stderr.trim() || "Download failed" }
     }
+    return { url, success: false, message: stderr.trim() || "Download failed" }
   } catch (err) {
     return { url, success: false, message: `Download error: ${err}` }
   }
@@ -374,11 +372,9 @@ const MAX_WORKERS_LIMIT = 10
  *   [Merger] Merging formats into "/path/to/file.mp4"
  */
 export function parseProgressLine(line: string): DownloadProgress {
-  // Fast path: most lines start with [download] - use prefix check before regex
+  // Fast path: prefix check before regex for the most common line type
   if (line.startsWith("[download]")) {
-    // Check for percentage pattern (most common during active download)
     if (line.includes("% of")) {
-      // 100% completed line (check before general progress to avoid heavier regex)
       if (line.includes("100%")) {
         const doneMatch = line.match(/\[download\]\s+100%\s+of\s+~?([\d.]+\s*\S+)/)
         if (doneMatch) {
@@ -393,7 +389,6 @@ export function parseProgressLine(line: string): DownloadProgress {
         }
       }
 
-      // Percentage + size + speed + ETA
       const progressMatch = line.match(
         /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+\s*\S+)\s+at\s+([\d.]+\s*\S+\/s)\s+ETA\s+(\S+)/,
       )
@@ -409,33 +404,27 @@ export function parseProgressLine(line: string): DownloadProgress {
       }
     }
 
-    // Destination line
     if (line.includes("Destination:")) {
       return { phase: "downloading", percent: 0, raw: line }
     }
 
-    // Writing subtitles
     if (line.includes("Writing video subtitles")) {
       return { phase: "subtitles", percent: 100, raw: line }
     }
   }
 
-  // Merging
   if (line.startsWith("[Merger]") || line.includes("Merging formats")) {
     return { phase: "merging", percent: 100, raw: line }
   }
 
-  // Extracting audio
   if (line.startsWith("[ExtractAudio]") || line.includes("Post-process")) {
     return { phase: "post_processing", percent: 100, raw: line }
   }
 
-  // Writing subtitles (alternate prefix)
   if (line.startsWith("[info]") && line.includes("Writing video subtitles")) {
     return { phase: "subtitles", percent: 100, raw: line }
   }
 
-  // Already downloaded
   if (line.includes("has already been downloaded")) {
     return { phase: "done", percent: 100, raw: line }
   }

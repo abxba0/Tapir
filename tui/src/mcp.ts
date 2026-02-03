@@ -268,18 +268,14 @@ async function executeTool(
 
         const response: Record<string, unknown> = { ...result }
 
-        // Find latest file once for both metadata and plugins
         const latestFile = (result.success && result.outputDir) ? findLatestFile(result.outputDir) : null
 
-        // Embed metadata if successful
-        if (result.success && result.outputDir && doEmbedMetadata && info) {
+        if (latestFile && doEmbedMetadata && info) {
           const meta = extractMetadata(info, url)
-          if (latestFile) {
-            const embedResult = await embedMetadata(latestFile, meta, {
-              embedThumbnail: doEmbedThumbnail,
-            })
-            response.metadata_embed = embedResult
-          }
+          const embedResult = await embedMetadata(latestFile, meta, {
+            embedThumbnail: doEmbedThumbnail,
+          })
+          response.metadata_embed = embedResult
         }
 
         // Run post-download plugins
