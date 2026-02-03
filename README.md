@@ -71,8 +71,8 @@ Available models (downloaded automatically on first use):
 ### Python CLI
 
 ```bash
-git clone https://github.com/abxba0/YT-video-downloader.git
-cd YT-video-downloader
+git clone https://github.com/abxba0/Tapir.git
+cd Tapir
 
 # Install dependencies
 pip install -r cli/requirements.txt
