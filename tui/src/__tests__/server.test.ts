@@ -269,15 +269,32 @@ describe("POST /api/convert", () => {
     expect(data.error).toContain("outputFormat")
   })
 
-  test("queues a conversion", async () => {
+  test("rejects invalid file path", async () => {
     const res = await fetch(`${baseUrl}/api/convert`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inputFile: "/tmp/test.mp3", outputFormat: "wav" }),
+      body: JSON.stringify({ inputFile: "/tmp/nonexistent.mp3", outputFormat: "wav" }),
     })
-    expect(res.status).toBe(202)
+    expect(res.status).toBe(400)
     const data = await res.json() as any
-    expect(data.jobId).toBeTruthy()
+    expect(data.error).toContain("file path")
+  })
+
+  test("queues a conversion for a valid file", async () => {
+    const tmp = "/tmp/tapir_test_convert.mp3"
+    require("fs").writeFileSync(tmp, "fake-audio-data")
+    try {
+      const res = await fetch(`${baseUrl}/api/convert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputFile: tmp, outputFormat: "wav" }),
+      })
+      expect(res.status).toBe(202)
+      const data = await res.json() as any
+      expect(data.jobId).toBeTruthy()
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
   })
 })
 
@@ -385,16 +402,26 @@ describe("POST /api/metadata/embed", () => {
     expect(data.error).toContain("file")
   })
 
-  test("attempts to embed metadata for given file", async () => {
+  test("rejects nonexistent file path", async () => {
     const res = await fetch(`${baseUrl}/api/metadata/embed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ file: "/tmp/nonexistent.mp4", title: "Test" }),
     })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
     const data = await res.json() as any
-    // Will fail because file doesn't exist, but should not crash
-    expect(typeof data.success).toBe("boolean")
+    expect(data.error).toContain("file path")
+  })
+
+  test("rejects sensitive system paths", async () => {
+    const res = await fetch(`${baseUrl}/api/metadata/embed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: "/etc/passwd", title: "Test" }),
+    })
+    expect(res.status).toBe(400)
+    const data = await res.json() as any
+    expect(data.error).toContain("file path")
   })
 })
 
@@ -411,5 +438,112 @@ describe("Request body edge cases", () => {
     })
     // Should return 400 for missing query, not crash
     expect(res.status).toBe(400)
+  })
+})
+
+// ============================================================================
+// Security validation
+// ============================================================================
+
+describe("Security: URL scheme validation", () => {
+  test("rejects file:// URLs on /api/download", async () => {
+    const res = await fetch(`${baseUrl}/api/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "file:///etc/passwd" }),
+    })
+    expect(res.status).toBe(400)
+    const data = await res.json() as any
+    expect(data.error).toContain("scheme")
+  })
+
+  test("rejects file:// URLs on /api/info", async () => {
+    const res = await fetch(`${baseUrl}/api/info`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "file:///etc/shadow" }),
+    })
+    expect(res.status).toBe(400)
+    const data = await res.json() as any
+    expect(data.error).toContain("scheme")
+  })
+
+  test("rejects data: URLs on /api/download", async () => {
+    const res = await fetch(`${baseUrl}/api/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "data:text/html,<h1>test</h1>" }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test("allows https URLs on /api/download", async () => {
+    const res = await fetch(`${baseUrl}/api/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }),
+    })
+    // Should be accepted (queued), not blocked by URL validation
+    expect(res.status).toBe(202)
+  })
+})
+
+describe("Security: path traversal", () => {
+  test("rejects /etc/ paths on /api/convert", async () => {
+    const res = await fetch(`${baseUrl}/api/convert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inputFile: "/etc/passwd", outputFormat: "wav" }),
+    })
+    expect(res.status).toBe(400)
+    const data = await res.json() as any
+    expect(data.error).toContain("file path")
+  })
+
+  test("rejects /proc/ paths on /api/tts", async () => {
+    const res = await fetch(`${baseUrl}/api/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inputFile: "/proc/self/environ" }),
+    })
+    expect(res.status).toBe(400)
+    const data = await res.json() as any
+    expect(data.error).toContain("file path")
+  })
+})
+
+describe("Security: SSRF protection", () => {
+  test("rejects private network thumbnailUrl on /api/metadata/embed", async () => {
+    const tmp = "/tmp/tapir_test_ssrf.mp4"
+    require("fs").writeFileSync(tmp, "fake-video-data")
+    try {
+      const res = await fetch(`${baseUrl}/api/metadata/embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: tmp, thumbnailUrl: "http://169.254.169.254/latest/meta-data/" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Thumbnail URL")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+
+  test("rejects localhost thumbnailUrl on /api/metadata/embed", async () => {
+    const tmp = "/tmp/tapir_test_ssrf2.mp4"
+    require("fs").writeFileSync(tmp, "fake-video-data")
+    try {
+      const res = await fetch(`${baseUrl}/api/metadata/embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: tmp, thumbnailUrl: "http://127.0.0.1:8080/secret" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Thumbnail URL")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
   })
 })

@@ -12,7 +12,7 @@
  *   bun run src/index.ts --server --port 9000
  */
 
-import { VERSION } from "./utils"
+import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl } from "./utils"
 import {
   getVideoInfo,
   downloadVideo,
@@ -48,6 +48,7 @@ interface QueuedJob {
 
 const jobs = new Map<string, QueuedJob>()
 let jobCounter = 0
+const MAX_JOBS = 1000
 
 function generateJobId(): string {
   jobCounter++
@@ -226,12 +227,22 @@ function errorResponse(message: string, status: number = 400): Response {
   return jsonResponse({ error: message }, status)
 }
 
+const MAX_BODY_BYTES = 1_048_576 // 1 MB
+
 async function parseBody(req: Request): Promise<Record<string, unknown>> {
   try {
+    const len = req.headers.get("content-length")
+    if (len && parseInt(len) > MAX_BODY_BYTES) return {}
     return (await req.json()) as Record<string, unknown>
   } catch {
     return {}
   }
+}
+
+function canCreateJob(): boolean {
+  if (jobs.size < MAX_JOBS) return true
+  cleanOldJobs()
+  return jobs.size < MAX_JOBS
 }
 
 // ============================================================================
@@ -273,7 +284,7 @@ async function handleRequest(req: Request): Promise<Response> {
   if (path === "/api/search" && method === "POST") {
     const body = await parseBody(req)
     const query = body.query as string
-    const maxResults = (body.maxResults as number) || 10
+    const maxResults = Math.min((body.maxResults as number) || 10, 25)
 
     if (!query) return errorResponse("Missing 'query' field")
 
@@ -287,6 +298,7 @@ async function handleRequest(req: Request): Promise<Response> {
     const videoUrl = body.url as string
 
     if (!videoUrl) return errorResponse("Missing 'url' field")
+    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
 
     const info = await getVideoInfo(videoUrl)
     if (!info) return errorResponse("Failed to fetch video info", 404)
@@ -300,6 +312,8 @@ async function handleRequest(req: Request): Promise<Response> {
     const videoUrl = body.url as string
 
     if (!videoUrl) return errorResponse("Missing 'url' field")
+    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
+    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -329,6 +343,8 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!inputFile || !outputFormat) {
       return errorResponse("Missing 'inputFile' or 'outputFormat' field")
     }
+    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
+    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -356,6 +372,8 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!inputFile) {
       return errorResponse("Missing 'inputFile' field")
     }
+    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
+    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -428,6 +446,8 @@ async function handleRequest(req: Request): Promise<Response> {
     const thumbnailUrl = body.thumbnailUrl as string | undefined
 
     if (!file) return errorResponse("Missing 'file' field")
+    if (!validateFilePath(file)) return errorResponse("Invalid or inaccessible file path")
+    if (thumbnailUrl && !isSafeFetchUrl(thumbnailUrl)) return errorResponse("Thumbnail URL not allowed")
 
     const result = await embedMetadata(file, {
       title,

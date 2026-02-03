@@ -29,6 +29,9 @@ import {
   getSupportedAudioFormats,
   getWhisperModels,
   parseSubtitleToText,
+  validateFilePath,
+  isSafeUrl,
+  isSafeFetchUrl,
 } from "../utils"
 
 // ============================================================================
@@ -582,5 +585,151 @@ STYLE
 Actual text`
     const result = parseSubtitleToText(vtt)
     expect(result).toBe("Actual text")
+  })
+})
+
+// ============================================================================
+// Security: validateFilePath
+// ============================================================================
+
+describe("validateFilePath", () => {
+  test("blocks /etc/ paths", () => {
+    expect(validateFilePath("/etc/passwd")).toBeNull()
+    expect(validateFilePath("/etc/shadow")).toBeNull()
+  })
+
+  test("blocks /proc/ paths", () => {
+    expect(validateFilePath("/proc/self/environ")).toBeNull()
+  })
+
+  test("blocks /sys/ paths", () => {
+    expect(validateFilePath("/sys/class/net")).toBeNull()
+  })
+
+  test("blocks /dev/ paths", () => {
+    expect(validateFilePath("/dev/null")).toBeNull()
+  })
+
+  test("returns null for nonexistent files", () => {
+    expect(validateFilePath("/tmp/does_not_exist_xyz.txt")).toBeNull()
+  })
+
+  test("returns resolved path for valid files", () => {
+    const tmp = join(tmpdir(), "tapir_validate_test.txt")
+    writeFileSync(tmp, "test")
+    try {
+      const result = validateFilePath(tmp)
+      expect(result).toBe(tmp)
+    } finally {
+      try { rmSync(tmp) } catch {}
+    }
+  })
+
+  test("returns null for directories", () => {
+    expect(validateFilePath(tmpdir())).toBeNull()
+  })
+})
+
+// ============================================================================
+// Security: isSafeUrl
+// ============================================================================
+
+describe("isSafeUrl", () => {
+  test("rejects file:// URLs", () => {
+    expect(isSafeUrl("file:///etc/passwd")).toBe(false)
+    expect(isSafeUrl("FILE:///etc/passwd")).toBe(false)
+  })
+
+  test("rejects data: URLs", () => {
+    expect(isSafeUrl("data:text/html,<h1>hi</h1>")).toBe(false)
+  })
+
+  test("rejects javascript: URLs", () => {
+    expect(isSafeUrl("javascript:alert(1)")).toBe(false)
+  })
+
+  test("allows http/https URLs", () => {
+    expect(isSafeUrl("https://youtube.com/watch?v=abc")).toBe(true)
+    expect(isSafeUrl("http://example.com")).toBe(true)
+  })
+
+  test("allows scheme-less URLs", () => {
+    expect(isSafeUrl("youtube.com/watch?v=abc")).toBe(true)
+  })
+
+  test("rejects empty/null values", () => {
+    expect(isSafeUrl("")).toBe(false)
+    expect(isSafeUrl(null as any)).toBe(false)
+    expect(isSafeUrl(undefined as any)).toBe(false)
+  })
+})
+
+// ============================================================================
+// Security: isSafeFetchUrl (SSRF protection)
+// ============================================================================
+
+describe("isSafeFetchUrl", () => {
+  test("blocks localhost", () => {
+    expect(isSafeFetchUrl("http://localhost/admin")).toBe(false)
+    expect(isSafeFetchUrl("http://127.0.0.1/secret")).toBe(false)
+    expect(isSafeFetchUrl("http://[::1]/api")).toBe(false)
+    expect(isSafeFetchUrl("http://0.0.0.0/")).toBe(false)
+  })
+
+  test("blocks AWS metadata endpoint", () => {
+    expect(isSafeFetchUrl("http://169.254.169.254/latest/meta-data/")).toBe(false)
+  })
+
+  test("blocks private network ranges", () => {
+    expect(isSafeFetchUrl("http://10.0.0.1/")).toBe(false)
+    expect(isSafeFetchUrl("http://192.168.1.1/")).toBe(false)
+    expect(isSafeFetchUrl("http://172.16.0.1/")).toBe(false)
+    expect(isSafeFetchUrl("http://172.31.255.255/")).toBe(false)
+  })
+
+  test("blocks .internal and .local domains", () => {
+    expect(isSafeFetchUrl("http://service.internal/")).toBe(false)
+    expect(isSafeFetchUrl("http://printer.local/")).toBe(false)
+  })
+
+  test("blocks file:// and data: schemes", () => {
+    expect(isSafeFetchUrl("file:///etc/passwd")).toBe(false)
+    expect(isSafeFetchUrl("data:text/html,test")).toBe(false)
+  })
+
+  test("allows public URLs", () => {
+    expect(isSafeFetchUrl("https://i.ytimg.com/vi/abc/thumb.jpg")).toBe(true)
+    expect(isSafeFetchUrl("https://example.com/image.png")).toBe(true)
+  })
+
+  test("rejects non-URL strings", () => {
+    expect(isSafeFetchUrl("not-a-url")).toBe(false)
+    expect(isSafeFetchUrl("")).toBe(false)
+  })
+})
+
+// ============================================================================
+// Security: validateFilePath symlink resolution
+// ============================================================================
+
+describe("validateFilePath symlink handling", () => {
+  test("blocks symlinks pointing to /etc/", () => {
+    const linkPath = join(tmpdir(), "tapir_symlink_test_" + Date.now())
+    try {
+      require("fs").symlinkSync("/etc/passwd", linkPath)
+      expect(validateFilePath(linkPath)).toBeNull()
+    } finally {
+      try { require("fs").unlinkSync(linkPath) } catch {}
+    }
+  })
+
+  test("blocks symlinks pointing to /proc/", () => {
+    const linkPath = join(tmpdir(), "tapir_symlink_test2_" + Date.now())
+    try {
+      require("fs").symlinkSync("/proc/version", linkPath)
+      expect(validateFilePath(linkPath)).toBeNull()
+    } finally {
+      try { require("fs").unlinkSync(linkPath) } catch {}
+    }
   })
 })
