@@ -26,6 +26,7 @@ import {
   listFormats,
 } from "./services/downloader"
 import { convertAudioFile } from "./services/converter"
+import { textToSpeech, listVoices } from "./services/tts"
 import {
   embedMetadata,
   extractMetadata,
@@ -141,6 +142,21 @@ const MCP_TOOLS: McpTool[] = [
         thumbnail_url: { type: "string", description: "URL to thumbnail image to embed as cover art" },
       },
       required: ["file"],
+    },
+  },
+  {
+    name: "text_to_speech",
+    description: "Convert a document file (PDF, TXT, MD, HTML, etc.) to speech audio using TTS. Supports edge-tts, gtts, and espeak engines with multiple voices and languages.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        input_file: { type: "string", description: "Path to the document file (PDF, TXT, MD, HTML, CSV, etc.)" },
+        voice: { type: "string", description: "Voice ID (e.g., 'en-US-AriaNeural' for edge-tts, 'en' for gtts/espeak)" },
+        output_format: { type: "string", description: "Output audio format: 'mp3' (default) or 'wav'" },
+        output_dir: { type: "string", description: "Output directory (default: youtube_downloads)" },
+        engine: { type: "string", description: "TTS engine: 'edge-tts', 'gtts', or 'espeak' (auto-detected if omitted)" },
+      },
+      required: ["input_file"],
     },
   },
   {
@@ -335,6 +351,35 @@ async function executeTool(
 
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case "text_to_speech": {
+        const inputFile = args.input_file as string
+        const voice = args.voice as string | undefined
+        const outputFormat = (args.output_format as "mp3" | "wav") || "mp3"
+        const outputDir = (args.output_dir as string) || "youtube_downloads"
+        const engine = args.engine as string | undefined
+
+        const messages: string[] = []
+        const result = await textToSpeech(
+          {
+            inputFile,
+            voice,
+            outputFormat,
+            outputDir,
+            engine: engine as any,
+          },
+          (msg) => messages.push(msg),
+        )
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ ...result, log: messages }, null, 2),
+            },
+          ],
         }
       }
 

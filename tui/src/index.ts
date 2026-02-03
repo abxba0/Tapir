@@ -47,6 +47,7 @@ Usage:
   bun run src/index.ts --download <URL>   Download a video directly
   bun run src/index.ts --convert <FILE>   Convert audio file directly
   bun run src/index.ts --transcribe <SRC> Transcribe a URL or local file
+  bun run src/index.ts --tts <FILE>       Convert a document to speech audio
   bun run src/index.ts --setup            Run dependency setup
   bun run src/index.ts --server [--port N] Start REST API server (default port 8384)
   bun run src/index.ts --mcp              Start MCP server for AI agents (stdio)
@@ -121,6 +122,11 @@ Dependencies:
   const transcribeIdx = args.indexOf("--transcribe")
   if (transcribeIdx !== -1 && args[transcribeIdx + 1]) {
     return { mode: "transcribe", target: args[transcribeIdx + 1] }
+  }
+
+  const ttsIdx = args.indexOf("--tts")
+  if (ttsIdx !== -1 && args[ttsIdx + 1]) {
+    return { mode: "text_to_speech", target: args[ttsIdx + 1] }
   }
 
   return { mode: "main_menu" }
@@ -217,6 +223,7 @@ async function main() {
   const loadBatchScreen = () => import("./screens/batchScreen")
   const loadPlaylistScreen = () => import("./screens/playlistScreen")
   const loadUninstallScreen = () => import("./screens/uninstallScreen")
+  const loadTtsScreen = () => import("./screens/ttsScreen")
 
   // Main application loop
   let running = true
@@ -272,6 +279,9 @@ async function main() {
             break
           case "transcribe":
             state.currentScreen = "transcribe"
+            break
+          case "tts":
+            state.currentScreen = "text_to_speech"
             break
           case "settings":
             state.currentScreen = "settings"
@@ -341,6 +351,14 @@ async function main() {
         const transcribeScreen = await loadTranscribeScreen()
         await transcribeScreen.run(renderer)
         transcribeScreen.destroy(renderer)
+        state.currentScreen = "main_menu"
+        break
+      }
+
+      case "text_to_speech": {
+        const ttsScreen = await loadTtsScreen()
+        await ttsScreen.run(renderer)
+        ttsScreen.destroy(renderer)
         state.currentScreen = "main_menu"
         break
       }
