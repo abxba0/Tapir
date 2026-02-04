@@ -9,6 +9,7 @@ import { existsSync, unlinkSync, renameSync, writeFileSync, readdirSync, statSyn
 import { join, dirname, basename, extname } from "path"
 import { tmpdir } from "os"
 import type { VideoInfo } from "../types"
+import { SUBPROCESS_TIMEOUT, withSubprocessTimeout } from "../utils"
 
 // ============================================================================
 // Types
@@ -92,7 +93,7 @@ async function convertThumbnailToJpg(thumbPath: string): Promise<string | null> 
       ["ffmpeg", "-y", "-i", thumbPath, "-q:v", "2", jpgPath],
       { stdout: "pipe", stderr: "pipe" },
     )
-    const exitCode = await proc.exited
+    const exitCode = await withSubprocessTimeout(proc, SUBPROCESS_TIMEOUT)
     if (exitCode === 0) {
       try { unlinkSync(thumbPath) } catch { /* ignore */ }
       return jpgPath
@@ -220,7 +221,7 @@ export async function embedMetadata(
     })
 
     const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
+    const exitCode = await withSubprocessTimeout(proc, SUBPROCESS_TIMEOUT)
 
     if (exitCode === 0 && existsSync(tmpOutput)) {
       // Replace original with tagged version

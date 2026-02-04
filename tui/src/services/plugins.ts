@@ -22,7 +22,7 @@
  * Additionally, full context is passed as JSON on stdin for .js/.ts/.py scripts.
  */
 
-import { existsSync, mkdirSync, readdirSync, statSync, chmodSync } from "fs"
+import { existsSync, mkdirSync, readdirSync, statSync, chmodSync, realpathSync } from "fs"
 import { homedir } from "os"
 import { join, extname } from "path"
 
@@ -118,6 +118,9 @@ export function discoverPlugins(hook: PluginHook): PluginInfo[] {
       try {
         const stat = statSync(fullPath)
         if (!stat.isFile()) continue
+        // Ensure symlinks don't escape the plugins directory
+        const realPath = realpathSync(fullPath)
+        if (!realPath.startsWith(PLUGINS_DIR)) continue
       } catch {
         continue
       }
@@ -212,13 +215,14 @@ async function executePlugin(
       stderr: "pipe",
     })
 
-    // Race between process completion and timeout
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => {
+    // Race between process completion and timeout (clear timer on completion)
+    let timer: Timer
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
         proc.kill()
         reject(new Error(`Plugin timed out after ${PLUGIN_TIMEOUT}ms`))
-      }, PLUGIN_TIMEOUT),
-    )
+      }, PLUGIN_TIMEOUT)
+    })
 
     const completion = (async () => {
       const exitCode = await proc.exited
@@ -228,6 +232,7 @@ async function executePlugin(
     })()
 
     const result = await Promise.race([completion, timeout])
+    clearTimeout(timer!)
 
     return {
       plugin: plugin.name,
