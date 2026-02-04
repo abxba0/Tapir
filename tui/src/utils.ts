@@ -297,6 +297,44 @@ export function isSafeFetchUrl(url: string): boolean {
   }
 }
 
+/**
+ * Validate an output directory path. Only allows directories under
+ * the user's home, temp dir, or current working directory.
+ */
+export function validateOutputDir(dir: string): boolean {
+  const resolved = resolve(dir)
+  if (isBlockedPath(resolved)) return false
+  const home = homedir()
+  const tmp = tmpdir()
+  const cwd = process.cwd()
+  return resolved.startsWith(home) || resolved.startsWith(tmp) || resolved.startsWith(cwd)
+}
+
+/**
+ * Race a subprocess against a timeout. Kills the process if it exceeds
+ * the deadline. Returns the exit code on success.
+ */
+export async function withSubprocessTimeout(
+  proc: { exited: Promise<number>; kill(): void },
+  ms: number,
+): Promise<number> {
+  let timer: Timer
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      proc.kill()
+      reject(new Error(`Subprocess timed out after ${ms}ms`))
+    }, ms)
+  })
+  try {
+    const exitCode = await Promise.race([proc.exited, timeout])
+    clearTimeout(timer!)
+    return exitCode
+  } catch (err) {
+    clearTimeout(timer!)
+    throw err
+  }
+}
+
 // ============================================================================
 // Dependency Checks
 // ============================================================================

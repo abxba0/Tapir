@@ -18,7 +18,7 @@
  *   Each message is a single line of JSON.
  */
 
-import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl } from "./utils"
+import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl, validateOutputDir } from "./utils"
 import {
   getVideoInfo,
   downloadVideo,
@@ -256,6 +256,9 @@ async function executeTool(
         }
         const format = (args.format as string) || "best"
         const outputDir = (args.output_dir as string) || "youtube_downloads"
+        if (args.output_dir && !validateOutputDir(outputDir)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Output directory not allowed" }) }] }
+        }
         const downloadSubs = args.download_subs as boolean | undefined
         const subLangs = args.sub_langs as string | undefined
         const doEmbedMetadata = args.embed_metadata !== false
@@ -310,6 +313,10 @@ async function executeTool(
           return { content: [{ type: "text", text: JSON.stringify({ error: "Invalid or inaccessible file path" }) }] }
         }
         const outputFormat = args.output_format as string
+        const VALID_FORMATS = ["mp3", "aac", "m4a", "ogg", "wav", "flac"]
+        if (!VALID_FORMATS.includes(outputFormat.toLowerCase())) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Unsupported output format" }) }] }
+        }
         const bitrate = args.bitrate as number | undefined
 
         const messages: string[] = []
@@ -375,6 +382,15 @@ async function executeTool(
         const outputFormat = (args.output_format as "mp3" | "wav") || "mp3"
         const outputDir = (args.output_dir as string) || "youtube_downloads"
         const engine = args.engine as string | undefined
+        if (engine && !["edge-tts", "gtts", "espeak"].includes(engine)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Unsupported TTS engine" }) }] }
+        }
+        if (args.output_format && !["mp3", "wav"].includes(outputFormat)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Unsupported TTS output format" }) }] }
+        }
+        if (args.output_dir && !validateOutputDir(outputDir)) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "Output directory not allowed" }) }] }
+        }
 
         const messages: string[] = []
         const result = await textToSpeech(
@@ -482,6 +498,15 @@ async function handleMessage(msg: JsonRpcRequest): Promise<JsonRpcResponse> {
         return makeError(msg.id, -32602, `Unknown tool: ${toolName}`)
       }
 
+      // Validate required arguments
+      if (tool.inputSchema.required) {
+        for (const field of tool.inputSchema.required) {
+          if (!(field in toolArgs) || toolArgs[field] === undefined || toolArgs[field] === "") {
+            return makeError(msg.id, -32602, `Missing required argument: ${field}`)
+          }
+        }
+      }
+
       const result = await executeTool(toolName, toolArgs)
       return makeResponse(msg.id, result)
     }
@@ -503,6 +528,8 @@ function send(response: JsonRpcResponse): void {
   process.stdout.write(json + "\n")
 }
 
+const MAX_LINE_LENGTH = 1_048_576 // 1 MB max per JSON-RPC message
+
 export async function startMcpServer(): Promise<void> {
   ensurePluginDirs()
 
@@ -518,6 +545,13 @@ export async function startMcpServer(): Promise<void> {
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
+
+    // Guard against unbounded buffer growth
+    if (buffer.length > MAX_LINE_LENGTH * 2) {
+      send(makeError(null, -32600, "Message too large"))
+      buffer = ""
+      continue
+    }
 
     // Process complete lines
     const lines = buffer.split("\n")

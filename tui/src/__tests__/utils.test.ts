@@ -733,3 +733,68 @@ describe("validateFilePath symlink handling", () => {
     }
   })
 })
+
+// ============================================================================
+// validateOutputDir
+// ============================================================================
+
+import { validateOutputDir } from "../utils"
+
+describe("validateOutputDir", () => {
+  test("allows directories under home", () => {
+    const { homedir } = require("os")
+    expect(validateOutputDir(join(homedir(), "downloads"))).toBe(true)
+    expect(validateOutputDir(join(homedir(), "youtube_downloads"))).toBe(true)
+  })
+
+  test("allows directories under tmpdir", () => {
+    expect(validateOutputDir(join(tmpdir(), "tapir_output"))).toBe(true)
+  })
+
+  test("allows directories under cwd", () => {
+    expect(validateOutputDir("youtube_downloads")).toBe(true)
+    expect(validateOutputDir("./output")).toBe(true)
+  })
+
+  test("blocks system paths", () => {
+    expect(validateOutputDir("/etc/tapir")).toBe(false)
+    expect(validateOutputDir("/proc/tapir")).toBe(false)
+    expect(validateOutputDir("/sys/tapir")).toBe(false)
+  })
+
+  test("blocks paths outside home/tmp/cwd", () => {
+    expect(validateOutputDir("/var/tapir")).toBe(false)
+    expect(validateOutputDir("/opt/tapir")).toBe(false)
+  })
+})
+
+// ============================================================================
+// withSubprocessTimeout
+// ============================================================================
+
+import { withSubprocessTimeout } from "../utils"
+
+describe("withSubprocessTimeout", () => {
+  test("resolves with exit code on fast process", async () => {
+    const exitCode = await withSubprocessTimeout(
+      { exited: Promise.resolve(0), kill: () => {} },
+      5000,
+    )
+    expect(exitCode).toBe(0)
+  })
+
+  test("rejects and kills on timeout", async () => {
+    let killed = false
+    const neverResolve = new Promise<number>(() => {})
+    try {
+      await withSubprocessTimeout(
+        { exited: neverResolve, kill: () => { killed = true } },
+        50,
+      )
+      expect(true).toBe(false) // Should not reach
+    } catch (err: any) {
+      expect(err.message).toContain("timed out")
+      expect(killed).toBe(true)
+    }
+  })
+})

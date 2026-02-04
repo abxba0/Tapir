@@ -33,6 +33,7 @@ interface ParsedArgs {
   mode: AppScreen | "server" | "mcp"
   target?: string
   port?: number
+  host?: string
 }
 
 function parseArgs(): ParsedArgs {
@@ -49,7 +50,7 @@ Usage:
   bun run src/index.ts --transcribe <SRC> Transcribe a URL or local file
   bun run src/index.ts --tts <FILE>       Convert a document to speech audio
   bun run src/index.ts --setup            Run dependency setup
-  bun run src/index.ts --server [--port N] Start REST API server (default port 8384)
+  bun run src/index.ts --server [--port N] [--host ADDR] Start REST API server
   bun run src/index.ts --mcp              Start MCP server for AI agents (stdio)
   bun run src/index.ts --help             Show this help message
 
@@ -96,8 +97,10 @@ Dependencies:
   if (args.includes("--server")) {
     const portIdx = args.indexOf("--port")
     const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : undefined
+    const hostIdx = args.indexOf("--host")
+    const host = hostIdx !== -1 && args[hostIdx + 1] ? args[hostIdx + 1] : undefined
     const settings = loadSettings()
-    return { mode: "server", port: port ?? settings.apiPort }
+    return { mode: "server", port: port ?? settings.apiPort, host }
   }
 
   // MCP mode
@@ -137,12 +140,12 @@ Dependencies:
 // ============================================================================
 
 async function main() {
-  const { mode, target, port } = parseArgs()
+  const { mode, target, port, host } = parseArgs()
 
   // Non-TUI modes: server and MCP
   if (mode === "server") {
     const { startServer } = await import("./server")
-    startServer(port)
+    startServer(port, host)
     return
   }
 

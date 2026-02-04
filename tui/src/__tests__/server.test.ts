@@ -547,3 +547,115 @@ describe("Security: SSRF protection", () => {
     }
   })
 })
+
+// ============================================================================
+// Security headers
+// ============================================================================
+
+describe("Security headers", () => {
+  test("responses include X-Content-Type-Options", async () => {
+    const res = await fetch(`${baseUrl}/api/health`)
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff")
+  })
+
+  test("responses include X-Frame-Options", async () => {
+    const res = await fetch(`${baseUrl}/api/health`)
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY")
+  })
+
+  test("CORS allows Authorization header", async () => {
+    const res = await fetch(`${baseUrl}/api/health`, { method: "OPTIONS" })
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("Authorization")
+  })
+})
+
+// ============================================================================
+// Enum validation
+// ============================================================================
+
+describe("Enum validation", () => {
+  test("rejects invalid audio format on /api/convert", async () => {
+    const tmp = "/tmp/tapir_test_enum.mp3"
+    require("fs").writeFileSync(tmp, "fake-audio-data")
+    try {
+      const res = await fetch(`${baseUrl}/api/convert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputFile: tmp, outputFormat: "exe" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Unsupported output format")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+
+  test("rejects invalid TTS engine on /api/tts", async () => {
+    const tmp = "/tmp/tapir_test_tts_enum.txt"
+    require("fs").writeFileSync(tmp, "test text")
+    try {
+      const res = await fetch(`${baseUrl}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputFile: tmp, engine: "invalid-engine" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Unsupported TTS engine")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+
+  test("rejects invalid TTS output format on /api/tts", async () => {
+    const tmp = "/tmp/tapir_test_tts_fmt.txt"
+    require("fs").writeFileSync(tmp, "test text")
+    try {
+      const res = await fetch(`${baseUrl}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputFile: tmp, outputFormat: "exe" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Unsupported TTS output format")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+})
+
+// ============================================================================
+// Output directory validation
+// ============================================================================
+
+describe("Output directory validation", () => {
+  test("rejects system paths as outputDir on /api/download", async () => {
+    const res = await fetch(`${baseUrl}/api/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com/video", outputDir: "/etc/tapir" }),
+    })
+    expect(res.status).toBe(400)
+    const data = await res.json() as any
+    expect(data.error).toContain("Output directory not allowed")
+  })
+
+  test("rejects system paths as outputDir on /api/tts", async () => {
+    const tmp = "/tmp/tapir_test_outdir.txt"
+    require("fs").writeFileSync(tmp, "test text")
+    try {
+      const res = await fetch(`${baseUrl}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputFile: tmp, outputDir: "/var/tapir" }),
+      })
+      expect(res.status).toBe(400)
+      const data = await res.json() as any
+      expect(data.error).toContain("Output directory not allowed")
+    } finally {
+      try { require("fs").unlinkSync(tmp) } catch {}
+    }
+  })
+})

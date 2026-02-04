@@ -6,7 +6,7 @@ import { $ } from "bun"
 import { existsSync, statSync } from "fs"
 import { extname, basename, join, dirname } from "path"
 import type { AudioMetadata, ConversionOptions, AudioFormatInfo } from "../types"
-import { getSupportedAudioFormats, formatSize, SUBPROCESS_TIMEOUT } from "../utils"
+import { getSupportedAudioFormats, formatSize, SUBPROCESS_TIMEOUT, withSubprocessTimeout } from "../utils"
 
 const SUPPORTED_INPUT_EXTENSIONS = [".mp3", ".m4a", ".wav", ".flac", ".ogg", ".aac", ".wma"]
 
@@ -24,7 +24,7 @@ export async function getAudioMetadata(filePath: string): Promise<AudioMetadata 
       { stdout: "pipe", stderr: "pipe" },
     )
     const stdout = await new Response(proc.stdout).text()
-    const exitCode = await proc.exited
+    const exitCode = await withSubprocessTimeout(proc, SUBPROCESS_TIMEOUT)
 
     if (exitCode === 0) {
       return JSON.parse(stdout) as AudioMetadata
@@ -152,7 +152,7 @@ export async function convertAudioFile(
   try {
     const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
     const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
+    const exitCode = await withSubprocessTimeout(proc, SUBPROCESS_TIMEOUT)
 
     if (exitCode === 0) {
       const outSize = statSync(outputFile).size

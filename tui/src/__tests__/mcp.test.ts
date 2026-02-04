@@ -20,11 +20,14 @@ afterEach(() => {
 // Helper: send JSON-RPC messages to the MCP server via subprocess
 // ============================================================================
 
+const BUN_PATH = process.execPath
+const MCP_CWD = import.meta.dir.replace(/\/src\/__tests__$/, "")
+
 async function sendMcpMessage(
   message: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const proc = Bun.spawn(["bun", "run", "src/mcp.ts"], {
-    cwd: "/home/user/YT-video-downloader/tui",
+  const proc = Bun.spawn([BUN_PATH, "run", "src/mcp.ts"], {
+    cwd: MCP_CWD,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -48,8 +51,8 @@ async function sendMcpMessage(
 async function sendMcpMessages(
   messages: Record<string, unknown>[],
 ): Promise<Record<string, unknown>[]> {
-  const proc = Bun.spawn(["bun", "run", "src/mcp.ts"], {
-    cwd: "/home/user/YT-video-downloader/tui",
+  const proc = Bun.spawn([BUN_PATH, "run", "src/mcp.ts"], {
+    cwd: MCP_CWD,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -221,7 +224,8 @@ describe("MCP tools/call embed_metadata", () => {
     expect(response.id).toBe(7)
     const result = response.result as any
     const parsed = JSON.parse(result.content[0].text)
-    expect(parsed.success).toBe(false)
+    // validateFilePath rejects non-existent files before reaching embed
+    expect(parsed.error).toContain("file path")
   })
 })
 
@@ -291,8 +295,8 @@ describe("MCP multiple messages", () => {
 
 describe("MCP notifications", () => {
   test("notifications without id do not produce response", async () => {
-    const proc = Bun.spawn(["bun", "run", "src/mcp.ts"], {
-      cwd: "/home/user/YT-video-downloader/tui",
+    const proc = Bun.spawn([BUN_PATH, "run", "src/mcp.ts"], {
+      cwd: MCP_CWD,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
@@ -323,8 +327,8 @@ describe("MCP notifications", () => {
 
 describe("MCP invalid JSON", () => {
   test("returns parse error for invalid JSON", async () => {
-    const proc = Bun.spawn(["bun", "run", "src/mcp.ts"], {
-      cwd: "/home/user/YT-video-downloader/tui",
+    const proc = Bun.spawn([BUN_PATH, "run", "src/mcp.ts"], {
+      cwd: MCP_CWD,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

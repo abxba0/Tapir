@@ -12,7 +12,7 @@
  *   bun run src/index.ts --server --port 9000
  */
 
-import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl } from "./utils"
+import { VERSION, validateFilePath, isSafeUrl, isSafeFetchUrl, validateOutputDir } from "./utils"
 import {
   getVideoInfo,
   downloadVideo,
@@ -49,6 +49,53 @@ interface QueuedJob {
 const jobs = new Map<string, QueuedJob>()
 let jobCounter = 0
 const MAX_JOBS = 1000
+
+// ============================================================================
+// Enterprise Configuration (via environment variables)
+// ============================================================================
+
+const API_KEY = process.env.TAPIR_API_KEY || ""
+const CORS_ORIGIN = process.env.TAPIR_CORS_ORIGIN || "*"
+const RATE_LIMIT = parseInt(process.env.TAPIR_RATE_LIMIT || "60")
+const RATE_WINDOW_MS = 60_000
+let shuttingDown = false
+
+// ============================================================================
+// Rate Limiting (per-IP sliding window)
+// ============================================================================
+
+const rateLimitMap = new Map<string, number[]>()
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const cutoff = now - RATE_WINDOW_MS
+  const timestamps = (rateLimitMap.get(ip) || []).filter(t => t > cutoff)
+  if (timestamps.length >= RATE_LIMIT) {
+    rateLimitMap.set(ip, timestamps)
+    return false
+  }
+  timestamps.push(now)
+  rateLimitMap.set(ip, timestamps)
+  return true
+}
+
+// ============================================================================
+// Auth
+// ============================================================================
+
+function checkAuth(req: Request): boolean {
+  if (!API_KEY) return true
+  const auth = req.headers.get("authorization")
+  return auth === `Bearer ${API_KEY}`
+}
+
+// ============================================================================
+// Enum Validation
+// ============================================================================
+
+const VALID_AUDIO_FORMATS = new Set(["mp3", "aac", "m4a", "ogg", "wav", "flac"])
+const VALID_TTS_ENGINES = new Set(["edge-tts", "gtts", "espeak"])
+const VALID_TTS_FORMATS = new Set(["mp3", "wav"])
 
 function generateJobId(): string {
   jobCounter++
@@ -216,9 +263,11 @@ function jsonResponse(data: unknown, status: number = 200): Response {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": CORS_ORIGIN,
       "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
     },
   })
 }
@@ -249,18 +298,44 @@ function canCreateJob(): boolean {
 // Route handlers
 // ============================================================================
 
-async function handleRequest(req: Request): Promise<Response> {
+async function handleRequest(req: Request, server: any): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
   const method = req.method
+  const ip = server?.requestIP?.(req)?.address || "unknown"
+
+  // Request logging
+  console.log(`${new Date().toISOString()} ${method} ${path} [${ip}]`)
 
   // CORS preflight
   if (method === "OPTIONS") {
     return new Response(null, {
       headers: {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": CORS_ORIGIN,
         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    })
+  }
+
+  // Shutdown guard
+  if (shuttingDown) {
+    return jsonResponse({ error: "Server is shutting down" }, 503)
+  }
+
+  // Auth check
+  if (!checkAuth(req)) {
+    return errorResponse("Unauthorized", 401)
+  }
+
+  // Rate limiting
+  if (!checkRateLimit(ip)) {
+    return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": "60",
+        "X-Content-Type-Options": "nosniff",
       },
     })
   }
@@ -313,6 +388,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (!videoUrl) return errorResponse("Missing 'url' field")
     if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
+    if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
+      return errorResponse("Output directory not allowed")
+    }
     if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
@@ -342,6 +420,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (!inputFile || !outputFormat) {
       return errorResponse("Missing 'inputFile' or 'outputFormat' field")
+    }
+    if (!VALID_AUDIO_FORMATS.has(outputFormat.toLowerCase())) {
+      return errorResponse("Unsupported output format")
     }
     if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
     if (!canCreateJob()) return errorResponse("Job queue full", 429)
@@ -373,6 +454,15 @@ async function handleRequest(req: Request): Promise<Response> {
       return errorResponse("Missing 'inputFile' field")
     }
     if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
+    if (body.engine && !VALID_TTS_ENGINES.has(body.engine as string)) {
+      return errorResponse("Unsupported TTS engine")
+    }
+    if (body.outputFormat && !VALID_TTS_FORMATS.has((body.outputFormat as string).toLowerCase())) {
+      return errorResponse("Unsupported TTS output format")
+    }
+    if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
+      return errorResponse("Output directory not allowed")
+    }
     if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
@@ -467,20 +557,43 @@ async function handleRequest(req: Request): Promise<Response> {
 // Server startup
 // ============================================================================
 
-export function startServer(port: number = 8384): void {
+export function startServer(port: number = 8384, host: string = "127.0.0.1"): void {
   ensurePluginDirs()
 
   const server = Bun.serve({
     port,
+    hostname: host,
     fetch: handleRequest,
   })
+
+  // Graceful shutdown
+  const shutdown = () => {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log("\nShutting down gracefully...")
+    server.stop()
+    const check = () => {
+      const hasRunning = [...jobs.values()].some(j => j.status === "running")
+      if (!hasRunning) process.exit(0)
+    }
+    check()
+    const interval = setInterval(check, 1000)
+    setTimeout(() => { clearInterval(interval); process.exit(0) }, 30_000)
+  }
+  process.on("SIGINT", shutdown)
+  process.on("SIGTERM", shutdown)
+
+  const authStatus = API_KEY ? "enabled" : "disabled"
+  const rateStatus = `${RATE_LIMIT} req/min`
 
   console.log(`
 ┌──────────────────────────────────────────────────┐
 │  Tapir REST API Server v${VERSION}                  │
 │──────────────────────────────────────────────────│
 │                                                  │
-│  Listening on: http://localhost:${String(server.port).padEnd(5)}            │
+│  Listening on: http://${host}:${String(server.port).padEnd(5)}          │
+│  Auth: ${authStatus.padEnd(10)}  Rate limit: ${rateStatus.padEnd(12)}  │
+│  CORS origin: ${CORS_ORIGIN.slice(0, 33).padEnd(33)} │
 │                                                  │
 │  Endpoints:                                      │
 │    GET  /api/health          Health check        │
@@ -500,11 +613,13 @@ export function startServer(port: number = 8384): void {
 `)
 }
 
-// Allow direct execution: bun run src/server.ts [--port N]
+// Allow direct execution: bun run src/server.ts [--port N] [--host ADDR]
 if (import.meta.main) {
   const args = process.argv.slice(2)
   const portIdx = args.indexOf("--port")
   const port = portIdx !== -1 && args[portIdx + 1] ? parseInt(args[portIdx + 1]) : 8384
+  const hostIdx = args.indexOf("--host")
+  const host = hostIdx !== -1 && args[hostIdx + 1] ? args[hostIdx + 1] : "127.0.0.1"
 
-  startServer(port)
+  startServer(port, host)
 }
