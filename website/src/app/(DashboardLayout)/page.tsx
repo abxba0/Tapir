@@ -82,7 +82,7 @@ const Dashboard = () => {
               }}
             >
               A powerful terminal toolkit for downloading, converting, transcribing,
-              and converting text to speech — supporting{" "}
+              and text-to-speech — supporting{" "}
               <Box component="span" sx={{ fontWeight: 700 }}>1800+ sites</Box>.
             </Typography>
             <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
