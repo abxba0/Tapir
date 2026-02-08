@@ -23,7 +23,7 @@ FAIL=0
 SKIP=0
 TOTAL=0
 FAILURES=""
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WEBSITE_DIR="${PROJECT_ROOT}/website"
 
 # Colors

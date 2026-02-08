@@ -29,7 +29,7 @@ CONTAINER_NAME="tapir-backend-test"
 IMAGE_NAME="tapir-backend-test-image"
 API_PORT=8384
 API_KEY="${TAPIR_API_KEY:-}"
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE_FILE="${PROJECT_ROOT}/backend/docker-compose.yml"
 
 # Colors
