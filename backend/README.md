@@ -111,6 +111,22 @@ The `docker-compose.yml` includes:
 - **Restart policy**: `unless-stopped` - Auto-restart on failures
 - **Resource limits**: 4GB memory limit (adjustable)
 
+#### Pre-downloading Whisper Models (Optional but Recommended)
+
+To avoid downloading the Whisper model on first transcription request, pre-download it:
+
+```bash
+# Create cache directory
+mkdir -p backend/whisper-cache
+
+# Download Whisper base model (142 MB)
+docker run --rm -v $(pwd)/whisper-cache:/root/.cache/whisper \
+  python:3.11-slim bash -c \
+  "pip install openai-whisper && python3 -c 'import whisper; whisper.load_model(\"base\")'"
+```
+
+Now the model is cached and will be instantly available when the container starts.
+
 ### Standalone Docker Container
 
 If you prefer using Docker directly without docker-compose:
@@ -155,13 +171,13 @@ docker rm tapir-backend
 
 - **Base image**: Debian Bookworm Slim (lightweight, stable)
 - **Multi-stage build**: Optimized for size and security
-- **Final image size**: ~2.5 GB (includes Whisper base model)
+- **Final image size**: ~1.2 GB (without Whisper model; add ~142 MB for base model when cached)
 - **Pre-installed dependencies**:
   - Bun runtime (>= 1.0)
   - Python 3.11 with pip
   - yt-dlp (latest)
   - FFmpeg (>= 5.0)
-  - OpenAI Whisper with pre-downloaded base model
+  - OpenAI Whisper library (models downloaded on first use or via volume mount)
   - edge-tts, gTTS (text-to-speech engines)
   - poppler-utils (PDF text extraction)
 - **Security**: Runs as non-root user (`tapir`, UID 1000)

@@ -25,10 +25,12 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     yt-dlp \
     openai-whisper \
     edge-tts \
-    gTTS
+    gTTS && \
+    # Ensure yt-dlp is in PATH by creating symlink if needed
+    ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp 2>/dev/null || true
 
-# Pre-download Whisper base model to reduce startup time
-RUN python3 -c "import whisper; whisper.load_model('base')"
+# Note: Whisper base model will be downloaded on first use
+# or can be pre-populated via mounted volume at /root/.cache/whisper
 
 # =============================================================================
 # Stage 2: Runtime - Minimal image with only required files
@@ -45,15 +47,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Bun from builder
-COPY --from=builder /root/.bun /root/.bun
-ENV PATH="/root/.bun/bin:${PATH}"
+# Copy Bun from builder to /usr/local for all users
+COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
+COPY --from=builder /root/.bun/bin/bunx /usr/local/bin/bunx
+ENV PATH="/usr/local/bin:${PATH}"
 
-# Copy Python packages from builder
+# Copy Python packages from builder (including scripts/binaries)
 COPY --from=builder /usr/local/lib/python3.11/dist-packages /usr/local/lib/python3.11/dist-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy pre-downloaded Whisper model from builder
-COPY --from=builder /root/.cache/whisper /root/.cache/whisper
+# Ensure Python scripts are in PATH
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Create Whisper cache directory (model will be downloaded on first use if not mounted)
+RUN mkdir -p /root/.cache/whisper
 
 # Create app directory
 WORKDIR /app
@@ -68,9 +75,6 @@ COPY backend/package.json /app/backend/package.json
 
 # Set working directory to backend
 WORKDIR /app/backend
-
-# Install backend dependencies
-RUN bun install --production
 
 # Create output directory
 RUN mkdir -p /app/youtube_downloads
