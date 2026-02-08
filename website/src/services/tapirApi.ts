@@ -67,6 +67,47 @@ export interface JobListResponse {
   count: number;
 }
 
+export interface YouTubeSearchResult {
+  results: Array<{
+    id: string;
+    title: string;
+    channel: string;
+    duration: string;
+    views: string;
+    url: string;
+  }>;
+  count: number;
+}
+
+export interface VideoInfo {
+  info: {
+    title?: string;
+    channel?: string;
+    duration?: number;
+    description?: string;
+    thumbnail?: string;
+    formats?: Array<{
+      format_id: string;
+      ext: string;
+      resolution?: string;
+      filesize?: number;
+    }>;
+  };
+}
+
+export interface HealthCheckResponse {
+  status: string;
+  version: string;
+  uptime: number;
+  jobs: {
+    total: number;
+    queued: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
+}
+
 // ============================================================================
 // API Functions
 // ============================================================================
@@ -180,7 +221,7 @@ export async function deleteJob(jobId: string): Promise<{ deleted: boolean }> {
 /**
  * Search YouTube
  */
-export async function searchYouTube(query: string, maxResults: number = 10): Promise<any> {
+export async function searchYouTube(query: string, maxResults: number = 10): Promise<YouTubeSearchResult> {
   const response = await fetch(`${API_BASE}/api/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -198,7 +239,7 @@ export async function searchYouTube(query: string, maxResults: number = 10): Pro
 /**
  * Get video info
  */
-export async function getVideoInfo(url: string): Promise<any> {
+export async function getVideoInfo(url: string): Promise<VideoInfo> {
   const response = await fetch(`${API_BASE}/api/info`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -216,7 +257,7 @@ export async function getVideoInfo(url: string): Promise<any> {
 /**
  * Check API health
  */
-export async function checkHealth(): Promise<any> {
+export async function checkHealth(): Promise<HealthCheckResponse> {
   const response = await fetch(`${API_BASE}/api/health`);
 
   if (!response.ok) {

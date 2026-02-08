@@ -318,7 +318,7 @@ async function processTranscribeJob(job: QueuedJob): Promise<void> {
     if (transcriptionResult) {
       const outputFormat = (req.outputFormat || "txt") as any
       const outputDir = req.outputDir || "youtube_downloads"
-      const baseName = req.url ? "transcription" : "transcription"
+      const baseName = "transcription"
       const outputPath = `${outputDir}/${baseName}`
 
       const savedPath = saveTranscription(
