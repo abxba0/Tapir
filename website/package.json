@@ -24,6 +24,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "eslint": "9.39.2",
+    "eslint-config-next": "16.1.6"
   }
 }

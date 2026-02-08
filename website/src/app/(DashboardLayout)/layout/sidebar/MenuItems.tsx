@@ -40,19 +40,19 @@ const Menuitems = [
     id: "download",
     title: "Download Media",
     icon: IconDownload,
-    href: "/features#download",
+    href: "/download",
   },
   {
     id: "transcribe",
     title: "Transcribe",
     icon: IconMicrophone,
-    href: "/features#transcribe",
+    href: "/transcribe",
   },
   {
     id: "tts",
     title: "Text to Speech",
     icon: IconFileText,
-    href: "/features#tts",
+    href: "/text-to-speech",
   },
   {
     id: "api",
