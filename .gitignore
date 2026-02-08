@@ -49,3 +49,8 @@ htmlcov/
 node_modules/
 tui/node_modules/
 tui/dist/
+
+# Website
+website/node_modules/
+website/.next/
+website/out/
