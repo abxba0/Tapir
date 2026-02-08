@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  tapir-backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: tapir-backend
+    ports:
+      - "8384:8384"
+    volumes:
+      # Persist downloaded files to host
+      - ./youtube_downloads:/app/youtube_downloads
+      # Persist Whisper models (avoids re-downloading)
+      - ./whisper-cache:/root/.cache/whisper
+    environment:
+      # Optional: API key for authentication
+      - TAPIR_API_KEY=${TAPIR_API_KEY:-}
+      # CORS origin (default: allow all)
+      - TAPIR_CORS_ORIGIN=${TAPIR_CORS_ORIGIN:-*}
+      # Rate limit (requests per minute per IP)
+      - TAPIR_RATE_LIMIT=${TAPIR_RATE_LIMIT:-60}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8384/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    # Resource limits (optional, adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
