@@ -1,0 +1,19 @@
+{
+  "name": "tapir-backend",
+  "version": "1.0.0",
+  "description": "Tapir REST API server - backend service",
+  "type": "module",
+  "main": "src/server.ts",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun run --watch src/server.ts",
+    "build": "bun build src/server.ts --outdir dist --target node",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.0"
+  },
+  "license": "MIT"
+}

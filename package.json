@@ -1,0 +1,27 @@
+{
+  "name": "tapir",
+  "version": "5.0.0",
+  "private": true,
+  "description": "Tapir - Media Downloader, Converter & Transcriber",
+  "workspaces": [
+    "shared",
+    "backend",
+    "tui",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:tui": "bun run --cwd tui dev",
+    "dev:backend": "bun run --cwd backend dev",
+    "dev:frontend": "npm run --prefix frontend dev",
+    "start:tui": "bun run --cwd tui start",
+    "start:backend": "bun run --cwd backend start",
+    "start:frontend": "npm run --prefix frontend start",
+    "test:tui": "bun test --cwd tui",
+    "test": "bun test --cwd tui",
+    "typecheck": "bun run --cwd tui typecheck",
+    "build:tui": "bun run --cwd tui build",
+    "build:backend": "bun run --cwd backend build",
+    "build:frontend": "npm run --prefix frontend build"
+  },
+  "license": "MIT"
+}

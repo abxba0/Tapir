@@ -1,0 +1,491 @@
+openapi: 3.0.0
+info:
+  title: Tapir API
+  description: >
+    Tapir REST API for media downloading, audio conversion, transcription,
+    and text-to-speech processing. Supports YouTube and 1800+ sites via yt-dlp.
+  version: 1.0.0
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8384
+    description: Local development server
+
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      description: Returns server status, version, uptime, and job counts
+      operationId: getHealth
+      responses:
+        "200":
+          description: Server health information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/search:
+    post:
+      summary: YouTube search
+      description: Search YouTube for videos
+      operationId: searchYouTube
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  description: Search query
+                maxResults:
+                  type: integer
+                  minimum: 1
+                  maximum: 25
+                  default: 10
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SearchResult"
+                  count:
+                    type: integer
+
+  /api/info:
+    post:
+      summary: Get video info
+      description: Fetch metadata for a video URL
+      operationId: getVideoInfo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Video information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  info:
+                    $ref: "#/components/schemas/VideoInfo"
+
+  /api/download:
+    post:
+      summary: Queue a download
+      description: Queue a video/audio download job
+      operationId: queueDownload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                format:
+                  type: string
+                  default: best
+                outputDir:
+                  type: string
+                downloadSubs:
+                  type: boolean
+                subLangs:
+                  type: string
+                embedMetadata:
+                  type: boolean
+                embedThumbnail:
+                  type: boolean
+      responses:
+        "202":
+          description: Job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+
+  /api/convert:
+    post:
+      summary: Queue audio conversion
+      description: Queue an audio format conversion job
+      operationId: queueConversion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - inputFile
+                - outputFormat
+              properties:
+                inputFile:
+                  type: string
+                outputFormat:
+                  type: string
+                  enum: [mp3, aac, m4a, ogg, wav, flac]
+                bitrate:
+                  type: integer
+      responses:
+        "202":
+          description: Job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+
+  /api/tts:
+    post:
+      summary: Queue text-to-speech
+      description: Queue a text-to-speech conversion job
+      operationId: queueTts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - inputFile
+              properties:
+                inputFile:
+                  type: string
+                voice:
+                  type: string
+                outputFormat:
+                  type: string
+                  enum: [mp3, wav]
+                outputDir:
+                  type: string
+                engine:
+                  type: string
+                  enum: [edge-tts, gtts, espeak]
+      responses:
+        "202":
+          description: Job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+
+  /api/transcribe:
+    post:
+      summary: Queue transcription
+      description: Queue a transcription job from URL or local file
+      operationId: queueTranscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  format: uri
+                filePath:
+                  type: string
+                modelSize:
+                  type: string
+                  enum: [tiny, base, small, medium, large]
+                language:
+                  type: string
+                outputFormat:
+                  type: string
+                  enum: [txt, srt, vtt]
+                outputDir:
+                  type: string
+                cookiesFile:
+                  type: string
+                cookiesFromBrowser:
+                  type: string
+      responses:
+        "202":
+          description: Job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+
+  /api/jobs:
+    get:
+      summary: List all jobs
+      description: List all jobs with optional status and type filters
+      operationId: listJobs
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, running, completed, failed]
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [download, convert, transcribe, tts]
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListResponse"
+
+  /api/jobs/{jobId}:
+    get:
+      summary: Get job status
+      description: Get status and details of a specific job
+      operationId: getJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueuedJob"
+    delete:
+      summary: Delete a job
+      description: Delete a completed or queued job
+      operationId: deleteJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+
+  /api/plugins:
+    get:
+      summary: List plugins
+      description: List installed plugins and their hooks
+      operationId: listPlugins
+      responses:
+        "200":
+          description: Plugin list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: object
+
+  /api/metadata/embed:
+    post:
+      summary: Embed metadata
+      description: Embed metadata (title, artist, thumbnail) into a media file
+      operationId: embedMetadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                title:
+                  type: string
+                artist:
+                  type: string
+                thumbnailUrl:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Metadata embed result
+          content:
+            application/json:
+              schema:
+                type: object
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        version:
+          type: string
+        uptime:
+          type: number
+        jobs:
+          type: object
+          properties:
+            total:
+              type: integer
+            queued:
+              type: integer
+            running:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+
+    SearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        url:
+          type: string
+        channel:
+          type: string
+        duration:
+          type: number
+        viewCount:
+          type: number
+        description:
+          type: string
+
+    VideoInfo:
+      type: object
+      properties:
+        title:
+          type: string
+        channel:
+          type: string
+        uploader:
+          type: string
+        duration:
+          type: number
+        upload_date:
+          type: string
+        view_count:
+          type: number
+        description:
+          type: string
+        formats:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoFormat"
+
+    VideoFormat:
+      type: object
+      properties:
+        format_id:
+          type: string
+        ext:
+          type: string
+        height:
+          type: integer
+        width:
+          type: integer
+        filesize:
+          type: integer
+
+    DownloadProgress:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [downloading, merging, post_processing, subtitles, done]
+        percent:
+          type: number
+        totalSize:
+          type: string
+        speed:
+          type: string
+        eta:
+          type: string
+        raw:
+          type: string
+
+    QueuedJob:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [download, convert, transcribe, tts]
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        createdAt:
+          type: number
+        startedAt:
+          type: number
+        completedAt:
+          type: number
+        request:
+          type: object
+        result:
+          type: object
+        progress:
+          $ref: "#/components/schemas/DownloadProgress"
+        error:
+          type: string
+
+    JobResponse:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+
+    JobListResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueuedJob"
+        count:
+          type: integer
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Optional API key authentication. Set TAPIR_API_KEY environment variable
+        on the server to enable. Pass as Authorization: Bearer <key>.
