@@ -169,10 +169,9 @@ async function checkFfmpeg(): Promise<boolean> {
 }
 
 async function checkWhisper(): Promise<boolean> {
-  if (await checkCmd("whisper", ["--help"])) return true
-  // Fallback: check Python module
+  // Check if faster-whisper Python module is importable
   try {
-    const proc = Bun.spawn(["python3", "-c", "import whisper; print('ok')"], {
+    const proc = Bun.spawn(["python3", "-c", "from faster_whisper import WhisperModel; print('ok')"], {
       stdout: "ignore",
       stderr: "ignore",
     })
@@ -280,30 +279,30 @@ export function getDependencies(): DependencyInfo[] {
     },
     {
       name: "whisper",
-      description: "OpenAI Whisper for speech-to-text transcription",
+      description: "Faster-Whisper for speech-to-text transcription (CTranslate2)",
       required: false,
       checkFn: checkWhisper,
       installCommands: {
-        macos: ["pip3 install openai-whisper"],
-        ubuntu: ["pip3 install openai-whisper"],
-        debian: ["pip3 install openai-whisper"],
-        fedora: ["pip3 install openai-whisper"],
-        arch: ["pip3 install openai-whisper"],
-        opensuse: ["pip3 install openai-whisper"],
-        alpine: ["pip3 install openai-whisper"],
-        linux_unknown: ["pip3 install openai-whisper"],
-        windows_wsl: ["pip3 install openai-whisper"],
+        macos: ["pip3 install faster-whisper"],
+        ubuntu: ["pip3 install faster-whisper"],
+        debian: ["pip3 install faster-whisper"],
+        fedora: ["pip3 install faster-whisper"],
+        arch: ["pip3 install faster-whisper"],
+        opensuse: ["pip3 install faster-whisper"],
+        alpine: ["pip3 install faster-whisper"],
+        linux_unknown: ["pip3 install faster-whisper"],
+        windows_wsl: ["pip3 install faster-whisper"],
       },
       uninstallCommands: {
-        macos: ["pip3 uninstall -y openai-whisper"],
-        ubuntu: ["pip3 uninstall -y openai-whisper"],
-        debian: ["pip3 uninstall -y openai-whisper"],
-        fedora: ["pip3 uninstall -y openai-whisper"],
-        arch: ["pip3 uninstall -y openai-whisper"],
-        opensuse: ["pip3 uninstall -y openai-whisper"],
-        alpine: ["pip3 uninstall -y openai-whisper"],
-        linux_unknown: ["pip3 uninstall -y openai-whisper"],
-        windows_wsl: ["pip3 uninstall -y openai-whisper"],
+        macos: ["pip3 uninstall -y faster-whisper"],
+        ubuntu: ["pip3 uninstall -y faster-whisper"],
+        debian: ["pip3 uninstall -y faster-whisper"],
+        fedora: ["pip3 uninstall -y faster-whisper"],
+        arch: ["pip3 uninstall -y faster-whisper"],
+        opensuse: ["pip3 uninstall -y faster-whisper"],
+        alpine: ["pip3 uninstall -y faster-whisper"],
+        linux_unknown: ["pip3 uninstall -y faster-whisper"],
+        windows_wsl: ["pip3 uninstall -y faster-whisper"],
       },
     },
   ]
@@ -445,8 +444,8 @@ export function cleanupTapirConfig(): { removed: string[]; errors: string[] } {
     errors.push(`Failed to remove ${CONFIG_DIR}: ${err.message}`)
   }
 
-  // Remove whisper model cache (~/.cache/whisper/)
-  const whisperCache = join(homedir(), ".cache", "whisper")
+  // Remove faster-whisper model cache (~/.cache/huggingface/)
+  const whisperCache = join(homedir(), ".cache", "huggingface")
   try {
     if (existsSync(whisperCache)) {
       rmSync(whisperCache, { recursive: true, force: true })

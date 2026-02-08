@@ -88,7 +88,7 @@ Settings:
 Dependencies:
   Required:  yt-dlp, bun
   Optional:  ffmpeg (for conversion, metadata embedding & high-quality downloads)
-  Optional:  openai-whisper (for transcription)
+  Optional:  faster-whisper (for transcription)
 `)
     process.exit(0)
   }

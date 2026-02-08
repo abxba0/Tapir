@@ -359,16 +359,10 @@ export async function checkFfmpeg(): Promise<boolean> {
 
 export async function checkWhisper(): Promise<boolean> {
   try {
-    const result = await $`whisper --help`.quiet()
+    const result = await $`python3 -c "from faster_whisper import WhisperModel; print('ok')"`.quiet()
     return result.exitCode === 0
   } catch {
-    // Also check if the Python module is importable
-    try {
-      const result = await $`python3 -c "import whisper; print('ok')"`.quiet()
-      return result.exitCode === 0
-    } catch {
-      return false
-    }
+    return false
   }
 }
 

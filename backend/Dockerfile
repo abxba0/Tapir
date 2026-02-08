@@ -22,8 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Bun binary from official image (more reliable than curl bun.sh)
+# Note: bunx is a symlink to bun in the official image; COPY dereferences it,
+# duplicating ~35MB. Create the symlink manually instead.
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-COPY --from=bun /usr/local/bin/bunx /usr/local/bin/bunx
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 ENV PATH="/usr/local/bin:${PATH}"
 
 # Optimization: Static FFmpeg binary (~30-40MB) replaces apt ffmpeg (~50-80MB)
@@ -67,18 +69,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /usr/share/man/* \
         /tmp/*
 
-# Copy Bun from official image (not from builder, to avoid pulling builder deps)
+# Copy Python packages and scripts from builder first (bulk copy)
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy Bun from official image (after builder copy so it isn't overwritten)
+# Note: bunx is a symlink in the official image; COPY dereferences it,
+# duplicating ~35MB. Create the symlink manually instead.
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-COPY --from=bun /usr/local/bin/bunx /usr/local/bin/bunx
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 # Copy static FFmpeg binaries from builder
 COPY --from=builder /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=builder /usr/local/bin/ffprobe /usr/local/bin/ffprobe
-
-# Copy Python packages from builder
-# Optimization: path corrected to site-packages (standard for python:slim images)
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Optimization: consolidated ENV block reduces layer metadata overhead
 ENV PATH="/usr/local/bin:${PATH}" \

@@ -563,7 +563,7 @@ async function handleSelection(_index: number, option: SelectOption): Promise<vo
 
   if (value === "cleanup_tapir") {
     showConfirmation(
-      `Are you sure you want to remove all Tapir data?\n\nThis will delete:\n  - ${getConfigDir()} (config, settings, plugins)\n  - ~/.cache/whisper/ (model cache)`,
+      `Are you sure you want to remove all Tapir data?\n\nThis will delete:\n  - ${getConfigDir()} (config, settings, plugins)\n  - ~/.cache/huggingface/ (model cache)`,
       value,
     )
     return
@@ -575,7 +575,7 @@ async function handleSelection(_index: number, option: SelectOption): Promise<vo
     )
     const names = removable.map((d) => d.name).join(", ")
     showConfirmation(
-      `FULL UNINSTALL\n\nThis will remove:\n  - Packages: ${names || "none"}\n  - Config: ${getConfigDir()}\n  - Cache: ~/.cache/whisper/\n\nAre you sure?`,
+      `FULL UNINSTALL\n\nThis will remove:\n  - Packages: ${names || "none"}\n  - Config: ${getConfigDir()}\n  - Cache: ~/.cache/huggingface/\n\nAre you sure?`,
       value,
     )
     return
