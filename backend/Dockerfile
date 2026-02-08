@@ -59,8 +59,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Ensure Python scripts are in PATH
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Create Whisper cache directory (model will be downloaded on first use if not mounted)
-RUN mkdir -p /root/.cache/whisper
+# Create Whisper cache directory in a location accessible to non-root user
+RUN mkdir -p /home/tapir/.cache/whisper
 
 # Create app directory
 WORKDIR /app
@@ -81,7 +81,7 @@ RUN mkdir -p /app/youtube_downloads
 
 # Create non-root user for security (UID 1000, common in Docker)
 RUN useradd -m -u 1000 -s /bin/bash tapir && \
-    chown -R tapir:tapir /app /root/.cache/whisper
+    chown -R tapir:tapir /app /home/tapir/.cache
 
 # Switch to non-root user
 USER tapir

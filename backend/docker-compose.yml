@@ -12,7 +12,7 @@ services:
       # Persist downloaded files to host
       - ./youtube_downloads:/app/youtube_downloads
       # Persist Whisper models (avoids re-downloading)
-      - ./whisper-cache:/root/.cache/whisper
+      - ./whisper-cache:/home/tapir/.cache/whisper
     environment:
       # Optional: API key for authentication
       - TAPIR_API_KEY=${TAPIR_API_KEY:-}

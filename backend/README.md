@@ -114,7 +114,7 @@ The `docker-compose.yml` includes:
 - **Port mapping**: `8384:8384` - Access API on http://localhost:8384
 - **Volume mounts**:
   - `./youtube_downloads:/app/youtube_downloads` - Downloaded files persist on host
-  - `./whisper-cache:/root/.cache/whisper` - Whisper models cached (saves re-downloading)
+  - `./whisper-cache:/home/tapir/.cache/whisper` - Whisper models cached (saves re-downloading)
 - **Environment variables**: API key, CORS, rate limiting
 - **Health check**: Automatically monitors server status
 - **Restart policy**: `unless-stopped` - Auto-restart on failures
@@ -129,7 +129,7 @@ To avoid downloading the Whisper model on first transcription request, pre-downl
 mkdir -p backend/whisper-cache
 
 # Download Whisper base model (142 MB)
-docker run --rm -v $(pwd)/whisper-cache:/root/.cache/whisper \
+docker run --rm -v $(pwd)/whisper-cache:/home/tapir/.cache/whisper \
   python:3.11-slim bash -c \
   "pip install openai-whisper && python3 -c 'import whisper; whisper.load_model(\"base\")'"
 ```
@@ -155,7 +155,7 @@ docker run -d \
   --name tapir-backend \
   -p 8384:8384 \
   -v $(pwd)/youtube_downloads:/app/youtube_downloads \
-  -v $(pwd)/whisper-cache:/root/.cache/whisper \
+  -v $(pwd)/whisper-cache:/home/tapir/.cache/whisper \
   -e TAPIR_API_KEY="" \
   -e TAPIR_CORS_ORIGIN="*" \
   -e TAPIR_RATE_LIMIT="60" \
@@ -330,7 +330,7 @@ docker exec tapir-backend yt-dlp --version
 #### Transcription fails (Whisper)
 ```bash
 # Verify Whisper model was downloaded
-docker exec tapir-backend ls -la /root/.cache/whisper/
+docker exec tapir-backend ls -la /home/tapir/.cache/whisper/
 
 # Test Whisper manually
 docker exec tapir-backend python3 -c "import whisper; print(whisper.load_model('base'))"
