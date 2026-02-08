@@ -70,6 +70,371 @@ Example with authentication:
 TAPIR_API_KEY=your-secret-key bun start
 ```
 
+## Docker Deployment
+
+The easiest way to run Tapir backend is using Docker. All dependencies (Bun, Python, yt-dlp, FFmpeg, Whisper, TTS engines, poppler-utils) are pre-installed and ready to use.
+
+### Quick Start with Docker Compose
+
+1. **Create a `.env` file (optional)** in the `backend/` directory:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your values
+nano .env
+```
+
+Or create it manually:
+```bash
+# .env
+TAPIR_API_KEY=your-secret-key-here
+TAPIR_CORS_ORIGIN=*
+TAPIR_RATE_LIMIT=60
+```
+
+2. **Start the container**:
+
+```bash
+cd backend
+docker-compose up -d
+```
+
+3. **Verify it's running**:
+
+```bash
+curl http://localhost:8384/api/health
+```
+
+### Docker Compose Configuration
+
+The `docker-compose.yml` includes:
+
+- **Port mapping**: `8384:8384` - Access API on http://localhost:8384
+- **Volume mounts**:
+  - `./youtube_downloads:/app/youtube_downloads` - Downloaded files persist on host
+  - `./whisper-cache:/home/tapir/.cache/whisper` - Whisper models cached (saves re-downloading)
+- **Environment variables**: API key, CORS, rate limiting
+- **Health check**: Automatically monitors server status
+- **Restart policy**: `unless-stopped` - Auto-restart on failures
+- **Resource limits**: 4GB memory limit (adjustable)
+
+#### Pre-downloading Whisper Models (Optional but Recommended)
+
+To avoid downloading the Whisper model on first transcription request, pre-download it:
+
+```bash
+# Create cache directory
+mkdir -p backend/whisper-cache
+
+# Download Whisper base model (142 MB)
+# Linux/macOS:
+docker run --rm -v $(pwd)/whisper-cache:/home/tapir/.cache/whisper \
+  python:3.11-slim bash -c \
+  "pip install openai-whisper && python3 -c 'import whisper; whisper.load_model(\"base\")'"
+
+# Windows PowerShell:
+# docker run --rm -v ${PWD}/whisper-cache:/home/tapir/.cache/whisper python:3.11-slim bash -c "pip install openai-whisper && python3 -c 'import whisper; whisper.load_model(\`"base\`")'"
+```
+
+Now the model is cached and will be instantly available when the container starts.
+
+### Standalone Docker Container
+
+If you prefer using Docker directly without docker-compose:
+
+**Build the image**:
+
+```bash
+# From backend directory
+cd backend
+docker build -t tapir-backend -f Dockerfile ..
+```
+
+**Run the container**:
+
+```bash
+# Linux/macOS:
+docker run -d \
+  --name tapir-backend \
+  -p 8384:8384 \
+  -v $(pwd)/youtube_downloads:/app/youtube_downloads \
+  -v $(pwd)/whisper-cache:/home/tapir/.cache/whisper \
+  -e TAPIR_API_KEY="" \
+  -e TAPIR_CORS_ORIGIN="*" \
+  -e TAPIR_RATE_LIMIT="60" \
+  --restart unless-stopped \
+  tapir-backend
+
+# Windows PowerShell:
+# docker run -d --name tapir-backend -p 8384:8384 -v ${PWD}/youtube_downloads:/app/youtube_downloads -v ${PWD}/whisper-cache:/home/tapir/.cache/whisper -e TAPIR_API_KEY="" -e TAPIR_CORS_ORIGIN="*" -e TAPIR_RATE_LIMIT="60" --restart unless-stopped tapir-backend
+```
+
+**View logs**:
+
+```bash
+docker logs -f tapir-backend
+```
+
+**Stop and remove**:
+
+```bash
+docker stop tapir-backend
+docker rm tapir-backend
+```
+
+### Docker Image Details
+
+- **Base image**: Debian Bookworm Slim (lightweight, stable)
+- **Multi-stage build**: Optimized for size and security
+- **Final image size**: ~1.2 GB (without Whisper model; add ~142 MB for base model when cached)
+- **Pre-installed dependencies**:
+  - Bun runtime (>= 1.0)
+  - Python 3.11 with pip
+  - yt-dlp (latest)
+  - FFmpeg (>= 5.0)
+  - OpenAI Whisper library (models downloaded on first use or via volume mount)
+  - edge-tts, gTTS (text-to-speech engines)
+  - poppler-utils (PDF text extraction)
+- **Security**: Runs as non-root user (`tapir`, UID 1000)
+- **Networking**: Binds to `0.0.0.0:8384` for Docker accessibility
+
+### Testing All Features
+
+After starting the container, verify each feature works:
+
+#### 1. Health Check
+```bash
+curl http://localhost:8384/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "version": "5.0.0",
+  "uptime": 123.45,
+  "jobs": { "total": 0, "queued": 0, "running": 0, "completed": 0, "failed": 0 }
+}
+```
+
+#### 2. YouTube Search
+```bash
+curl -X POST http://localhost:8384/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test video", "maxResults": 5}'
+```
+
+#### 3. Queue Download
+```bash
+curl -X POST http://localhost:8384/api/download \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "format": "best",
+    "outputDir": "youtube_downloads"
+  }'
+```
+
+Response includes `jobId`. Check status with:
+```bash
+curl http://localhost:8384/api/jobs/<jobId>
+```
+
+#### 4. Transcribe Media (Whisper base model)
+```bash
+curl -X POST http://localhost:8384/api/transcribe \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "modelSize": "base",
+    "outputFormat": "txt"
+  }'
+```
+
+#### 5. Text-to-Speech (edge-tts)
+First, create a text file in `youtube_downloads/test.txt`, then:
+```bash
+curl -X POST http://localhost:8384/api/tts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "inputFile": "/app/youtube_downloads/test.txt",
+    "voice": "en-US-AriaNeural",
+    "engine": "edge-tts",
+    "outputFormat": "mp3"
+  }'
+```
+
+#### 6. Audio Conversion (FFmpeg)
+```bash
+# First download a video, then convert it
+curl -X POST http://localhost:8384/api/convert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "inputFile": "/app/youtube_downloads/video.m4a",
+    "outputFormat": "mp3",
+    "bitrate": 320
+  }'
+```
+
+#### 7. Metadata Embedding (with thumbnail)
+```bash
+curl -X POST http://localhost:8384/api/metadata/embed \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file": "/app/youtube_downloads/audio.mp3",
+    "title": "Test Title",
+    "artist": "Test Artist",
+    "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+  }'
+```
+
+### Accessing Downloaded Files
+
+Files are saved to the mounted volume `./youtube_downloads` on your host machine:
+
+```bash
+ls -la backend/youtube_downloads/
+```
+
+### Environment Variables Reference
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `TAPIR_API_KEY` | Bearer token for authentication. If set, all requests must include `Authorization: Bearer <token>` | _(disabled)_ | `mysecret123` |
+| `TAPIR_CORS_ORIGIN` | CORS allowed origin. Set to your frontend URL or `*` for all | `*` | `https://myapp.com` |
+| `TAPIR_RATE_LIMIT` | Maximum requests per IP per minute | `60` | `100` |
+
+### Troubleshooting
+
+#### Container won't start
+```bash
+# Check logs
+docker logs tapir-backend
+
+# Check if port 8384 is already in use
+lsof -i :8384  # macOS/Linux
+netstat -ano | findstr :8384  # Windows
+```
+
+#### Health check failing
+```bash
+# Test health endpoint manually
+docker exec tapir-backend curl -f http://localhost:8384/api/health
+
+# Check if server is running
+docker exec tapir-backend ps aux | grep bun
+```
+
+#### "yt-dlp not found" error
+This should not happen in Docker. If it does:
+```bash
+# Verify yt-dlp is installed
+docker exec tapir-backend which yt-dlp
+docker exec tapir-backend yt-dlp --version
+```
+
+#### Transcription fails (Whisper)
+```bash
+# Verify Whisper model was downloaded
+docker exec tapir-backend ls -la /home/tapir/.cache/whisper/
+
+# Test Whisper manually
+docker exec tapir-backend python3 -c "import whisper; print(whisper.load_model('base'))"
+```
+
+#### Permission issues with mounted volumes
+If you get permission errors accessing `youtube_downloads`:
+```bash
+# Fix permissions (run on host)
+sudo chown -R $(id -u):$(id -g) backend/youtube_downloads
+sudo chown -R $(id -u):$(id -g) backend/whisper-cache
+```
+
+#### Out of memory errors
+Large transcriptions or downloads may require more memory. Increase in `docker-compose.yml`:
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 8G  # Increase from 4G
+```
+
+Then restart:
+```bash
+docker-compose down
+docker-compose up -d
+```
+
+#### Rebuild with latest changes
+```bash
+# Stop and remove old container
+docker-compose down
+
+# Rebuild image from scratch
+docker-compose build --no-cache
+
+# Start fresh container
+docker-compose up -d
+```
+
+### Security Best Practices
+
+1. **Always set an API key in production**:
+   ```bash
+   TAPIR_API_KEY=$(openssl rand -hex 32)
+   echo "TAPIR_API_KEY=$TAPIR_API_KEY" >> .env
+   ```
+
+2. **Restrict CORS in production**:
+   ```bash
+   TAPIR_CORS_ORIGIN=https://yourdomain.com
+   ```
+
+3. **Use a reverse proxy** (nginx, Caddy) for HTTPS:
+   ```nginx
+   location /api/ {
+       proxy_pass http://localhost:8384/api/;
+       proxy_set_header Host $host;
+       proxy_set_header X-Real-IP $remote_addr;
+   }
+   ```
+
+4. **Limit resource usage** with Docker constraints
+
+5. **Keep images updated**:
+   ```bash
+   docker-compose pull
+   docker-compose up -d
+   ```
+
+### Advanced Configuration
+
+#### Custom Port Mapping
+To run on a different port (e.g., 9000):
+
+```yaml
+# docker-compose.yml
+ports:
+  - "9000:8384"
+```
+
+#### Multiple Instances
+Run multiple instances by changing the container name and port:
+
+```bash
+docker run -d --name tapir-backend-2 -p 8385:8384 tapir-backend
+```
+
+#### Persistent Logs
+Mount a log directory:
+
+```yaml
+volumes:
+  - ./logs:/app/logs
+```
+
 ## API Endpoints
 
 ### Health Check
