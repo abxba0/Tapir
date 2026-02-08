@@ -2,8 +2,11 @@
 
 A media downloader, converter, transcriber, and text-to-speech tool for the terminal. Download videos from **YouTube, Vimeo, Instagram, TikTok, SoundCloud, and 1800+ other sites**, convert audio between formats, transcribe media using OpenAI Whisper, and convert documents to speech audio.
 
+## Components
 
-- [ ] **[tui/](tui/)** - TypeScript terminal UI built with [OpenTUI](https://opentui.com) and [Bun](https://bun.sh)
+- **[tui/](tui/)** - TypeScript terminal UI built with [OpenTUI](https://opentui.com) and [Bun](https://bun.sh)
+- **[backend/](backend/)** - REST API server for external tool integration
+- **[website/](website/)** - Next.js documentation and marketing site
 
 ## Features
 
@@ -140,7 +143,23 @@ python3 cli/youtube_downloader.py --list-sites
 │   │   └── __tests__/              # Test suites (400+ tests)
 │   ├── package.json                # Bun/Node dependencies
 │   ├── tsconfig.json               # TypeScript config
-│   └── README.md                   # TUI-specific docs  
+│   └── README.md                   # TUI documentation
+├── backend/                        # REST API server
+│   ├── src/
+│   │   └── server.ts               # HTTP server implementation
+│   ├── package.json                # Backend dependencies
+│   ├── tsconfig.json               # TypeScript config
+│   └── README.md                   # Backend documentation
+├── website/                        # Next.js documentation site
+│   ├── src/
+│   │   └── app/                    # Next.js App Router pages
+│   ├── package.json                # Website dependencies
+│   └── README.md                   # Website documentation
+├── shared/                         # Shared types and utilities
+│   ├── types/                      # TypeScript type definitions
+│   ├── validation/                 # Input validation utilities
+│   └── api-contracts/              # API contracts
+├── package.json                    # Root workspace config
 └── README.md                       # This file
 ```
 

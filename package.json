@@ -7,21 +7,21 @@
     "shared",
     "backend",
     "tui",
-    "frontend"
+    "website"
   ],
   "scripts": {
     "dev:tui": "bun run --cwd tui dev",
     "dev:backend": "bun run --cwd backend dev",
-    "dev:frontend": "npm run --prefix frontend dev",
+    "dev:website": "npm run --prefix website dev",
     "start:tui": "bun run --cwd tui start",
     "start:backend": "bun run --cwd backend start",
-    "start:frontend": "npm run --prefix frontend start",
+    "start:website": "npm run --prefix website start",
     "test:tui": "bun test --cwd tui",
     "test": "bun test --cwd tui",
     "typecheck": "bun run --cwd tui typecheck",
     "build:tui": "bun run --cwd tui build",
     "build:backend": "bun run --cwd backend build",
-    "build:frontend": "npm run --prefix frontend build"
+    "build:website": "npm run --prefix website build"
   },
   "license": "MIT"
 }
