@@ -79,6 +79,15 @@ The easiest way to run Tapir backend is using Docker. All dependencies (Bun, Pyt
 1. **Create a `.env` file (optional)** in the `backend/` directory:
 
 ```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your values
+nano .env
+```
+
+Or create it manually:
+```bash
 # .env
 TAPIR_API_KEY=your-secret-key-here
 TAPIR_CORS_ORIGIN=*
