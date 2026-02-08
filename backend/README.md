@@ -129,9 +129,13 @@ To avoid downloading the Whisper model on first transcription request, pre-downl
 mkdir -p backend/whisper-cache
 
 # Download Whisper base model (142 MB)
+# Linux/macOS:
 docker run --rm -v $(pwd)/whisper-cache:/home/tapir/.cache/whisper \
   python:3.11-slim bash -c \
   "pip install openai-whisper && python3 -c 'import whisper; whisper.load_model(\"base\")'"
+
+# Windows PowerShell:
+# docker run --rm -v ${PWD}/whisper-cache:/home/tapir/.cache/whisper python:3.11-slim bash -c "pip install openai-whisper && python3 -c 'import whisper; whisper.load_model(\`"base\`")'"
 ```
 
 Now the model is cached and will be instantly available when the container starts.
@@ -151,6 +155,7 @@ docker build -t tapir-backend -f Dockerfile ..
 **Run the container**:
 
 ```bash
+# Linux/macOS:
 docker run -d \
   --name tapir-backend \
   -p 8384:8384 \
@@ -161,6 +166,9 @@ docker run -d \
   -e TAPIR_RATE_LIMIT="60" \
   --restart unless-stopped \
   tapir-backend
+
+# Windows PowerShell:
+# docker run -d --name tapir-backend -p 8384:8384 -v ${PWD}/youtube_downloads:/app/youtube_downloads -v ${PWD}/whisper-cache:/home/tapir/.cache/whisper -e TAPIR_API_KEY="" -e TAPIR_CORS_ORIGIN="*" -e TAPIR_RATE_LIMIT="60" --restart unless-stopped tapir-backend
 ```
 
 **View logs**:

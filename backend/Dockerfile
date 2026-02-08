@@ -93,10 +93,13 @@ EXPOSE 8384
 ENV TAPIR_API_KEY=""
 ENV TAPIR_CORS_ORIGIN="*"
 ENV TAPIR_RATE_LIMIT="60"
+ENV TAPIR_HOST="0.0.0.0"
+ENV TAPIR_PORT="8384"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8384/api/health || exit 1
 
 # Start the backend server on 0.0.0.0 for Docker accessibility
-CMD ["bun", "run", "src/server.ts", "--host", "0.0.0.0", "--port", "8384"]
+# Host and port can be overridden via TAPIR_HOST and TAPIR_PORT env vars
+CMD ["sh", "-c", "bun run src/server.ts --host ${TAPIR_HOST:-0.0.0.0} --port ${TAPIR_PORT:-8384}"]
