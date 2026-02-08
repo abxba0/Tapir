@@ -1,17 +1,17 @@
 # =============================================================================
-# Stage 1: Builder - Install dependencies and pre-download Whisper model
+# Stage 1: Builder - Install dependencies
 # =============================================================================
-FROM debian:bookworm-slim AS builder
+# Optimization: python:3.11-slim (~45MB) replaces debian:bookworm-slim (~75MB)
+# Python is pre-installed, eliminating separate python3/pip apt packages
+FROM python:3.11-slim AS builder
 
 # Install system dependencies
+# Optimization: ffmpeg removed from apt - using static binary instead
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     unzip \
-    python3 \
-    python3-pip \
-    python3-venv \
-    ffmpeg \
+    xz-utils \
     poppler-utils \
     git \
     && rm -rf /var/lib/apt/lists/*
@@ -20,53 +20,72 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
+# Optimization: Static FFmpeg binary (~30-40MB) replaces apt ffmpeg (~50-80MB)
+# Only extract ffmpeg and ffprobe - no extra libs or docs needed
+RUN curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+    -o /tmp/ffmpeg.tar.xz && \
+    tar -xf /tmp/ffmpeg.tar.xz -C /tmp --wildcards '*/ffmpeg' '*/ffprobe' && \
+    mv /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg && \
+    mv /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe && \
+    chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe && \
+    rm -rf /tmp/ffmpeg* /tmp/ffmpeg-*
+
 # Install Python dependencies
-RUN pip3 install --no-cache-dir --break-system-packages \
+# Optimization: faster-whisper (~30-50MB with CTranslate2) replaces
+# openai-whisper (~170-200MB with PyTorch) - 5-10x smaller, faster inference
+RUN pip install --no-cache-dir \
     yt-dlp \
-    openai-whisper \
+    faster-whisper \
     edge-tts \
     gTTS && \
-    # Ensure yt-dlp is in PATH by creating symlink if needed
     ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp 2>/dev/null || true
-
-# Note: Whisper base model will be downloaded on first use
-# or can be pre-populated via mounted volume at /root/.cache/whisper
 
 # =============================================================================
 # Stage 2: Runtime - Minimal image with only required files
 # =============================================================================
-FROM debian:bookworm-slim
+FROM python:3.11-slim
 
-# Install runtime dependencies
+# Install runtime dependencies + aggressive cleanup in same layer
+# Optimization: ffmpeg removed (static binary copied from builder)
+# Optimization: aggressive removal of docs, man pages, apt caches
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    ffmpeg \
     poppler-utils \
     ca-certificates \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get purge -y --auto-remove \
+    && rm -rf /var/lib/apt/lists/* \
+        /usr/share/doc/* \
+        /usr/share/man/* \
+        /tmp/*
 
 # Copy Bun from builder to /usr/local for all users
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 COPY --from=builder /root/.bun/bin/bunx /usr/local/bin/bunx
-ENV PATH="/usr/local/bin:${PATH}"
 
-# Copy Python packages from builder (including scripts/binaries)
-COPY --from=builder /usr/local/lib/python3.11/dist-packages /usr/local/lib/python3.11/dist-packages
+# Copy static FFmpeg binaries from builder
+COPY --from=builder /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=builder /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+
+# Copy Python packages from builder
+# Optimization: path corrected to site-packages (standard for python:slim images)
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Ensure Python scripts are in PATH
-ENV PATH="/usr/local/bin:${PATH}"
+# Optimization: consolidated ENV block reduces layer metadata overhead
+ENV PATH="/usr/local/bin:${PATH}" \
+    TAPIR_API_KEY="" \
+    TAPIR_CORS_ORIGIN="*" \
+    TAPIR_RATE_LIMIT="60" \
+    TAPIR_HOST="0.0.0.0" \
+    TAPIR_PORT="8384"
 
 # Create Whisper cache directory in a location accessible to non-root user
-RUN mkdir -p /home/tapir/.cache/whisper
+RUN mkdir -p /home/tapir/.cache/huggingface
 
 # Create app directory
 WORKDIR /app
 
 # Copy workspace dependencies in correct order (shared -> tui -> backend)
-# This ensures all imports work correctly
 COPY shared /app/shared
 COPY tui/src /app/tui/src
 COPY tui/package.json /app/tui/package.json
@@ -89,17 +108,9 @@ USER tapir
 # Expose API port
 EXPOSE 8384
 
-# Environment variables with defaults
-ENV TAPIR_API_KEY=""
-ENV TAPIR_CORS_ORIGIN="*"
-ENV TAPIR_RATE_LIMIT="60"
-ENV TAPIR_HOST="0.0.0.0"
-ENV TAPIR_PORT="8384"
-
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8384/api/health || exit 1
 
 # Start the backend server on 0.0.0.0 for Docker accessibility
-# Host and port can be overridden via TAPIR_HOST and TAPIR_PORT env vars
 CMD ["sh", "-c", "bun run src/server.ts --host ${TAPIR_HOST:-0.0.0.0} --port ${TAPIR_PORT:-8384}"]

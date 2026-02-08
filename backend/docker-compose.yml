@@ -9,8 +9,8 @@ services:
     volumes:
       # Persist downloaded files to host
       - ./youtube_downloads:/app/youtube_downloads
-      # Persist Whisper models (avoids re-downloading)
-      - ./whisper-cache:/home/tapir/.cache/whisper
+      # Persist faster-whisper/CTranslate2 models (avoids re-downloading)
+      - ./whisper-cache:/home/tapir/.cache/huggingface
     environment:
       # Optional: API key for authentication
       - TAPIR_API_KEY=${TAPIR_API_KEY:-}

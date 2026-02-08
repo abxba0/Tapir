@@ -208,7 +208,7 @@ export async function downloadAudioForTranscription(
 // ============================================================================
 
 /**
- * Transcribe an audio/video file using OpenAI Whisper (via CLI or Python).
+ * Transcribe an audio/video file using faster-whisper (CTranslate2 backend).
  */
 export async function transcribeWithWhisper(
   audioPath: string,
@@ -221,80 +221,27 @@ export async function transcribeWithWhisper(
 
   onProgress?.(`Loading Whisper '${modelSize}' model...`)
 
-  // Use whisper CLI
-  const args = [
-    "whisper", audioPath,
-    "--model", modelSize,
-    "--output_dir", outDir,
-    "--output_format", "json",
-  ]
-
-  if (language) args.push("--language", language)
-
-  try {
-    onProgress?.("Transcribing audio (this may take a while)...")
-    const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
-
-    const stderr = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
-
-    if (exitCode !== 0) {
-      // Fall back to Python module invocation
-      onProgress?.("CLI whisper failed, trying Python module...")
-      return await transcribeWithWhisperPython(audioPath, modelSize, language, outDir, onProgress)
-    }
-
-    // Parse the JSON output file
-    const audioBase = basename(audioPath, extname(audioPath))
-    const jsonPath = join(outDir, `${audioBase}.json`)
-
-    if (existsSync(jsonPath)) {
-      const data = JSON.parse(readFileSync(jsonPath, "utf-8"))
-      return {
-        text: data.text || "",
-        segments: (data.segments || []).map((s: any) => ({
-          start: s.start,
-          end: s.end,
-          text: s.text,
-        })),
-        language: data.language,
-      }
-    }
-
-    // Try to extract from stderr (whisper sometimes outputs there)
-    onProgress?.("Looking for transcription output...")
-    return await transcribeWithWhisperPython(audioPath, modelSize, language, outDir, onProgress)
-  } catch (err) {
-    onProgress?.(`Whisper error: ${err}`)
-    return await transcribeWithWhisperPython(audioPath, modelSize, language, outDir, onProgress)
-  }
-}
-
-/**
- * Fallback: use Python to invoke whisper module directly.
- */
-async function transcribeWithWhisperPython(
-  audioPath: string,
-  modelSize: WhisperModelSize,
-  language: string | undefined,
-  outputDir: string,
-  onProgress?: (message: string) => void,
-): Promise<TranscriptionResult | null> {
-  const langArg = language ? `"${language}"` : "None"
+  // Use faster-whisper via Python (no CLI available for faster-whisper)
   const script = `
-import whisper, json, sys
-model = whisper.load_model("${modelSize}")
-result = model.transcribe("${audioPath.replace(/"/g, '\\"')}"${language ? `, language="${language}"` : ""})
+import json
+from faster_whisper import WhisperModel
+model = WhisperModel("${modelSize}", device="cpu", compute_type="int8")
+segments, info = model.transcribe("${audioPath.replace(/"/g, '\\"')}"${language ? `, language="${language}"` : ""})
+seg_list = []
+full_text = []
+for s in segments:
+    seg_list.append({"start": s.start, "end": s.end, "text": s.text})
+    full_text.append(s.text)
 output = {
-    "text": result.get("text", ""),
-    "segments": [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in result.get("segments", [])],
-    "language": result.get("language", "unknown")
+    "text": " ".join(full_text),
+    "segments": seg_list,
+    "language": info.language
 }
 print(json.dumps(output))
 `
 
   try {
-    onProgress?.("Running Whisper via Python...")
+    onProgress?.("Transcribing audio (this may take a while)...")
     const proc = Bun.spawn(["python3", "-c", script], {
       stdout: "pipe",
       stderr: "pipe",
@@ -313,10 +260,10 @@ print(json.dumps(output))
     }
 
     const stderr = await new Response(proc.stderr).text()
-    onProgress?.(`Whisper Python error: ${stderr.slice(0, 200)}`)
+    onProgress?.(`Whisper error: ${stderr.slice(0, 200)}`)
     return null
   } catch (err) {
-    onProgress?.(`Whisper Python error: ${err}`)
+    onProgress?.(`Whisper error: ${err}`)
     return null
   }
 }

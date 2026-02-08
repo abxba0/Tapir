@@ -80,3 +80,13 @@ temp
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Website (not needed in backend image)
+website
+
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+.mypy_cache
+.pytest_cache
