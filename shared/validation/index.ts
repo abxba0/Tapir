@@ -50,7 +50,7 @@ export function validateFilePath(filePath: string): string | null {
 export function isSafeUrl(url: string): boolean {
   if (!url || typeof url !== "string") return false
   const lower = url.toLowerCase().trimStart()
-  return !lower.startsWith("file:") && !lower.startsWith("data:") && !lower.startsWith("javascript:")
+  return !lower.startsWith("file:") && !lower.startsWith("data:") && !lower.startsWith("javascript:") && !lower.startsWith("vbscript:")
 }
 
 /**
