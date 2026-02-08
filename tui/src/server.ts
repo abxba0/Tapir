@@ -22,6 +22,7 @@ import {
 import { convertAudioFile } from "./services/converter"
 import { textToSpeech } from "./services/tts"
 import { embedMetadata, extractMetadata, findLatestFile } from "./services/metadata"
+import { transcribeFromUrl, transcribeLocalFile, saveTranscription } from "./services/transcriber"
 import { runHook, ensurePluginDirs, getPluginSummary } from "./services/plugins"
 import type { DownloadProgress, DownloadResult, VideoInfo } from "./types"
 
@@ -96,6 +97,8 @@ function checkAuth(req: Request): boolean {
 const VALID_AUDIO_FORMATS = new Set(["mp3", "aac", "m4a", "ogg", "wav", "flac"])
 const VALID_TTS_ENGINES = new Set(["edge-tts", "gtts", "espeak"])
 const VALID_TTS_FORMATS = new Set(["mp3", "wav"])
+const VALID_TRANSCRIPTION_FORMATS = new Set(["txt", "srt", "vtt"])
+const VALID_WHISPER_MODELS = new Set(["tiny", "base", "small", "medium", "large"])
 
 function generateJobId(): string {
   jobCounter++
@@ -246,6 +249,98 @@ async function processTtsJob(job: QueuedJob): Promise<void> {
     job.result = { ...result } as unknown as Record<string, unknown>
     job.status = result.success ? "completed" : "failed"
     if (!result.success) job.error = result.message
+  } catch (err: any) {
+    job.status = "failed"
+    job.error = err.message || String(err)
+  }
+
+  job.completedAt = Date.now()
+}
+
+async function processTranscribeJob(job: QueuedJob): Promise<void> {
+  job.status = "running"
+  job.startedAt = Date.now()
+
+  const req = job.request as {
+    url?: string
+    filePath?: string
+    modelSize?: string
+    language?: string
+    outputFormat?: string
+    outputDir?: string
+    cookiesFile?: string
+    cookiesFromBrowser?: string
+  }
+
+  try {
+    let transcriptionResult = null
+
+    if (req.url) {
+      // Transcribe from URL
+      transcriptionResult = await transcribeFromUrl(
+        {
+          source: req.url,
+          modelSize: (req.modelSize as any) || "base",
+          language: req.language,
+          outputDir: req.outputDir || "youtube_downloads",
+          cookiesFile: req.cookiesFile,
+          cookiesFromBrowser: req.cookiesFromBrowser,
+        },
+        (message) => {
+          // Store progress messages
+          if (!job.progress) {
+            (job as any).progressMessages = []
+          }
+          (job as any).progressMessages = [(job as any).progressMessages || [], message].flat()
+        },
+      )
+    } else if (req.filePath) {
+      // Transcribe local file
+      if (!validateFilePath(req.filePath)) {
+        throw new Error("Invalid or inaccessible file path")
+      }
+      transcriptionResult = await transcribeLocalFile(
+        req.filePath,
+        (req.modelSize as any) || "base",
+        req.language,
+        req.outputDir || "youtube_downloads",
+        (message) => {
+          if (!job.progress) {
+            (job as any).progressMessages = []
+          }
+          (job as any).progressMessages = [(job as any).progressMessages || [], message].flat()
+        },
+      )
+    } else {
+      throw new Error("Either 'url' or 'filePath' must be provided")
+    }
+
+    if (transcriptionResult) {
+      const outputFormat = (req.outputFormat || "txt") as any
+      const outputDir = req.outputDir || "youtube_downloads"
+      const baseName = req.url ? "transcription" : "transcription"
+      const outputPath = `${outputDir}/${baseName}`
+
+      const savedPath = saveTranscription(
+        transcriptionResult.text,
+        transcriptionResult.segments || null,
+        outputPath,
+        outputFormat,
+      )
+
+      job.result = {
+        success: true,
+        text: transcriptionResult.text,
+        language: transcriptionResult.language,
+        outputFile: savedPath,
+        segmentCount: transcriptionResult.segments?.length || 0,
+      }
+      job.status = "completed"
+    } else {
+      job.status = "failed"
+      job.error = "Transcription failed"
+      job.result = { success: false }
+    }
   } catch (err: any) {
     job.status = "failed"
     job.error = err.message || String(err)
@@ -483,6 +578,46 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     return jsonResponse({ jobId: job.id, status: "queued" }, 202)
   }
 
+  // Queue transcription
+  if (path === "/api/transcribe" && method === "POST") {
+    const body = await parseBody(req)
+    const url = body.url as string
+    const filePath = body.filePath as string
+
+    if (!url && !filePath) {
+      return errorResponse("Missing 'url' or 'filePath' field")
+    }
+    if (url && !isSafeUrl(url)) return errorResponse("URL scheme not allowed")
+    if (filePath && !validateFilePath(filePath)) return errorResponse("Invalid or inaccessible file path")
+    if (body.modelSize && !VALID_WHISPER_MODELS.has(body.modelSize as string)) {
+      return errorResponse("Unsupported Whisper model")
+    }
+    if (body.outputFormat && !VALID_TRANSCRIPTION_FORMATS.has((body.outputFormat as string).toLowerCase())) {
+      return errorResponse("Unsupported transcription output format")
+    }
+    if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
+      return errorResponse("Output directory not allowed")
+    }
+    if (!canCreateJob()) return errorResponse("Job queue full", 429)
+
+    const job: QueuedJob = {
+      id: generateJobId(),
+      type: "transcribe",
+      status: "queued",
+      createdAt: Date.now(),
+      request: body,
+    }
+
+    jobs.set(job.id, job)
+
+    processTranscribeJob(job).catch(() => {
+      job.status = "failed"
+      job.completedAt = Date.now()
+    })
+
+    return jsonResponse({ jobId: job.id, status: "queued" }, 202)
+  }
+
   // List all jobs
   if (path === "/api/jobs" && method === "GET") {
     cleanOldJobs()
@@ -602,6 +737,7 @@ export function startServer(port: number = 8384, host: string = "127.0.0.1"): vo
 │    POST /api/download        Queue download      │
 │    POST /api/convert         Queue conversion    │
 │    POST /api/tts             Queue text-to-speech│
+│    POST /api/transcribe      Queue transcription │
 │    GET  /api/jobs            List all jobs       │
 │    GET  /api/jobs/:id        Get job status      │
 │    DELETE /api/jobs/:id      Delete a job        │
