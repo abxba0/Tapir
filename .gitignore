@@ -50,7 +50,20 @@ node_modules/
 tui/node_modules/
 tui/dist/
 
-# Website
+# Backend
+backend/node_modules/
+backend/dist/
+
+# Shared
+shared/node_modules/
+shared/dist/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Website (legacy)
 website/node_modules/
 website/.next/
 website/out/
