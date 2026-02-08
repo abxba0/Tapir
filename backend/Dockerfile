@@ -1,4 +1,9 @@
 # =============================================================================
+# Stage 0: Bun - Pull Bun binary from official image (avoids flaky curl)
+# =============================================================================
+FROM oven/bun:1 AS bun
+
+# =============================================================================
 # Stage 1: Builder - Install dependencies
 # =============================================================================
 # Optimization: python:3.11-slim (~45MB) replaces debian:bookworm-slim (~75MB)
@@ -16,14 +21,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Bun runtime
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
+# Copy Bun binary from official image (more reliable than curl bun.sh)
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=bun /usr/local/bin/bunx /usr/local/bin/bunx
+ENV PATH="/usr/local/bin:${PATH}"
 
 # Optimization: Static FFmpeg binary (~30-40MB) replaces apt ffmpeg (~50-80MB)
 # Only extract ffmpeg and ffprobe - no extra libs or docs needed
-RUN curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
-    -o /tmp/ffmpeg.tar.xz && \
+# Retry logic for network resilience during builds
+RUN for i in 1 2 3 4; do \
+        curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+            -o /tmp/ffmpeg.tar.xz && break || sleep $((i * 2)); \
+    done && \
     tar -xf /tmp/ffmpeg.tar.xz -C /tmp --wildcards '*/ffmpeg' '*/ffprobe' && \
     mv /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg && \
     mv /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe && \
@@ -58,9 +67,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /usr/share/man/* \
         /tmp/*
 
-# Copy Bun from builder to /usr/local for all users
-COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
-COPY --from=builder /root/.bun/bin/bunx /usr/local/bin/bunx
+# Copy Bun from official image (not from builder, to avoid pulling builder deps)
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=bun /usr/local/bin/bunx /usr/local/bin/bunx
 
 # Copy static FFmpeg binaries from builder
 COPY --from=builder /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
