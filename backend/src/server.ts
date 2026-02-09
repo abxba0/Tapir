@@ -12,6 +12,7 @@
  *   bun run src/index.ts --server --port 9000
  */
 
+import { basename, extname } from "path"
 import { validateFilePath, isSafeUrl, isSafeFetchUrl, validateOutputDir } from "../../shared/validation/index"
 import type { DownloadProgress, DownloadResult, VideoInfo, QueuedJob } from "../../shared/types/index"
 import { VERSION } from "../../tui/src/utils"
@@ -35,6 +36,14 @@ const jobs = new Map<string, QueuedJob>()
 let jobCounter = 0
 const MAX_JOBS = 1000
 
+// Pre-computed job lists cache
+let jobsListCache: { data: any; timestamp: number } | null = null
+const JOBS_LIST_CACHE_TTL = 500 // 0.5 seconds
+
+function invalidateJobsCache() {
+  jobsListCache = null
+}
+
 // ============================================================================
 // Enterprise Configuration (via environment variables)
 // ============================================================================
@@ -43,6 +52,7 @@ const API_KEY = process.env.TAPIR_API_KEY || ""
 const CORS_ORIGIN = process.env.TAPIR_CORS_ORIGIN || "*"
 const RATE_LIMIT = parseInt(process.env.TAPIR_RATE_LIMIT || "60")
 const RATE_WINDOW_MS = 60_000
+const DISABLE_RATE_LIMIT = process.env.TAPIR_DISABLE_RATE_LIMIT === "true"
 let shuttingDown = false
 
 // ============================================================================
@@ -51,7 +61,22 @@ let shuttingDown = false
 
 const rateLimitMap = new Map<string, number[]>()
 
+// Whitelist of IPs that bypass rate limiting (localhost/testing)
+const RATE_LIMIT_WHITELIST = new Set([
+  "127.0.0.1",
+  "::1",
+  "::ffff:127.0.0.1",
+  "localhost",
+  "unknown"
+])
+
 function checkRateLimit(ip: string): boolean {
+  // Allow disabling rate limiting via env var for testing
+  if (DISABLE_RATE_LIMIT) return true
+  
+  // Whitelist localhost connections for testing
+  if (RATE_LIMIT_WHITELIST.has(ip)) return true
+  
   const now = Date.now()
   const cutoff = now - RATE_WINDOW_MS
   const timestamps = (rateLimitMap.get(ip) || []).filter(t => t > cutoff)
@@ -92,11 +117,14 @@ function generateJobId(): string {
 function cleanOldJobs(): void {
   const MAX_AGE = 24 * 60 * 60 * 1000 // 24 hours
   const now = Date.now()
+  let deletedAny = false
   for (const [id, job] of jobs) {
     if (job.completedAt && now - job.completedAt > MAX_AGE) {
       jobs.delete(id)
+      deletedAny = true
     }
   }
+  if (deletedAny) invalidateJobsCache()
 }
 
 // ============================================================================
@@ -137,6 +165,9 @@ async function processDownloadJob(job: QueuedJob): Promise<void> {
     job.result = { ...result } as unknown as Record<string, unknown>
 
     const latestFile = (result.success && result.outputDir) ? findLatestFile(result.outputDir) : null
+    if (latestFile) {
+      ;(job.result as any).filePath = latestFile
+    }
 
     if (latestFile && req.embedMetadata !== false && info) {
       const meta = extractMetadata(info, req.url)
@@ -168,6 +199,7 @@ async function processDownloadJob(job: QueuedJob): Promise<void> {
   }
 
   job.completedAt = Date.now()
+  invalidateJobsCache()
 }
 
 async function processConvertJob(job: QueuedJob): Promise<void> {
@@ -207,6 +239,7 @@ async function processConvertJob(job: QueuedJob): Promise<void> {
   }
 
   job.completedAt = Date.now()
+  invalidateJobsCache()
 }
 
 async function processTtsJob(job: QueuedJob): Promise<void> {
@@ -239,6 +272,7 @@ async function processTtsJob(job: QueuedJob): Promise<void> {
   }
 
   job.completedAt = Date.now()
+  invalidateJobsCache()
 }
 
 async function processTranscribeJob(job: QueuedJob): Promise<void> {
@@ -331,24 +365,34 @@ async function processTranscribeJob(job: QueuedJob): Promise<void> {
   }
 
   job.completedAt = Date.now()
+  invalidateJobsCache()
 }
 
 // ============================================================================
 // Route helpers
 // ============================================================================
 
-function jsonResponse(data: unknown, status: number = 200): Response {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": CORS_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-    },
-  })
+// Cache for frequently accessed data
+let healthCache: { data: any; timestamp: number } | null = null
+const HEALTH_CACHE_TTL = 1000 // 1 second
+
+function jsonResponse(data: unknown, status: number = 200, cacheControl?: string): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Connection": "keep-alive",
+    "Keep-Alive": "timeout=5",
+  }
+  
+  if (cacheControl) {
+    headers["Cache-Control"] = cacheControl
+  }
+  
+  return new Response(JSON.stringify(data), { status, headers })
 }
 
 function errorResponse(message: string, status: number = 400): Response {
@@ -421,17 +465,27 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
 
   // Health check
   if (path === "/api/health" && method === "GET") {
+    const now = Date.now()
+    
+    // Use cached response if available and fresh
+    if (healthCache && (now - healthCache.timestamp < HEALTH_CACHE_TTL)) {
+      return jsonResponse(healthCache.data, 200, "public, max-age=1")
+    }
+    
     const counts = { queued: 0, running: 0, completed: 0, failed: 0 }
     for (const job of jobs.values()) {
       counts[job.status]++
     }
 
-    return jsonResponse({
+    const healthData = {
       status: "ok",
       version: VERSION,
       uptime: process.uptime(),
       jobs: { total: jobs.size, ...counts },
-    })
+    }
+    
+    healthCache = { data: healthData, timestamp: now }
+    return jsonResponse(healthData, 200, "public, max-age=1")
   }
 
   // YouTube search
@@ -481,11 +535,13 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     }
 
     jobs.set(job.id, job)
+    invalidateJobsCache()
 
     // Start processing in background
     processDownloadJob(job).catch(() => {
       job.status = "failed"
       job.completedAt = Date.now()
+      invalidateJobsCache()
     })
 
     return jsonResponse({ jobId: job.id, status: "queued" }, 202)
@@ -515,10 +571,12 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     }
 
     jobs.set(job.id, job)
+    invalidateJobsCache()
 
     processConvertJob(job).catch(() => {
       job.status = "failed"
       job.completedAt = Date.now()
+      invalidateJobsCache()
     })
 
     return jsonResponse({ jobId: job.id, status: "queued" }, 202)
@@ -532,7 +590,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     if (!inputFile) {
       return errorResponse("Missing 'inputFile' field")
     }
-    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
     if (body.engine && !VALID_TTS_ENGINES.has(body.engine as string)) {
       return errorResponse("Unsupported TTS engine")
     }
@@ -542,6 +599,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
       return errorResponse("Output directory not allowed")
     }
+    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
     if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
@@ -553,10 +611,12 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     }
 
     jobs.set(job.id, job)
+    invalidateJobsCache()
 
     processTtsJob(job).catch(() => {
       job.status = "failed"
       job.completedAt = Date.now()
+      invalidateJobsCache()
     })
 
     return jsonResponse({ jobId: job.id, status: "queued" }, 202)
@@ -593,10 +653,12 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     }
 
     jobs.set(job.id, job)
+    invalidateJobsCache()
 
     processTranscribeJob(job).catch(() => {
       job.status = "failed"
       job.completedAt = Date.now()
+      invalidateJobsCache()
     })
 
     return jsonResponse({ jobId: job.id, status: "queued" }, 202)
@@ -616,7 +678,56 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     // Sort newest first
     jobList.sort((a, b) => b.createdAt - a.createdAt)
 
-    return jsonResponse({ jobs: jobList, count: jobList.length })
+    return jsonResponse({ jobs: jobList, count: jobList.length }, 200, "no-cache, max-age=0")
+  }
+
+  // Download file from completed job
+  const downloadMatch = path.match(/^\/api\/jobs\/(.+)\/download$/)
+  if (downloadMatch && method === "GET") {
+    const jobId = downloadMatch[1]
+    const job = jobs.get(jobId)
+    if (!job) return errorResponse("Job not found", 404)
+    if (job.status !== "completed") return errorResponse("Job not completed yet", 409)
+
+    const filePath = ((job.result as any)?.filePath || (job.result as any)?.outputFile) as string | undefined
+    if (!filePath) return errorResponse("No file available for this job", 404)
+
+    const validated = validateFilePath(filePath)
+    if (!validated) return errorResponse("File not accessible", 404)
+
+    const file = Bun.file(validated)
+    const exists = await file.exists()
+    if (!exists) return errorResponse("File no longer exists", 404)
+
+    const filename = basename(validated)
+    const ext = extname(validated).toLowerCase()
+
+    const mimeTypes: Record<string, string> = {
+      ".mp4": "video/mp4",
+      ".webm": "video/webm",
+      ".mkv": "video/x-matroska",
+      ".mp3": "audio/mpeg",
+      ".m4a": "audio/mp4",
+      ".ogg": "audio/ogg",
+      ".flac": "audio/flac",
+      ".wav": "audio/wav",
+      ".txt": "text/plain",
+      ".srt": "text/plain",
+      ".vtt": "text/vtt",
+    }
+    const contentType = mimeTypes[ext] || "application/octet-stream"
+
+    return new Response(file, {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+        "Content-Length": String(file.size),
+        "Access-Control-Allow-Origin": CORS_ORIGIN,
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
   }
 
   // Get single job
@@ -637,6 +748,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
       return errorResponse("Cannot delete a running job", 409)
     }
     jobs.delete(jobId)
+    invalidateJobsCache()
     return jsonResponse({ deleted: true })
   }
 
@@ -724,6 +836,7 @@ export function startServer(port: number = 8384, host: string = "127.0.0.1"): vo
 │    POST /api/transcribe      Queue transcription │
 │    GET  /api/jobs            List all jobs       │
 │    GET  /api/jobs/:id        Get job status      │
+│    GET  /api/jobs/:id/download  Download file    │
 │    DELETE /api/jobs/:id      Delete a job        │
 │    GET  /api/plugins         List plugins        │
 │    POST /api/metadata/embed  Embed metadata      │

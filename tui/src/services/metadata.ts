@@ -293,7 +293,7 @@ export async function embedMetadataInDir(
  * Find the most recently downloaded file in a directory (for post-download embedding).
  */
 export function findLatestFile(dir: string, extensions?: string[]): string | null {
-  const exts = extensions || [".mp4", ".mp3", ".m4a", ".mkv", ".webm", ".ogg", ".flac", ".wav"]
+  const exts = extensions || [".mp4", ".mp3", ".m4a", ".mkv", ".webm", ".ogg", ".flac", ".wav", ".avi", ".mov", ".flv", ".3gp"]
 
   try {
     const files = readdirSync(dir) as string[]
