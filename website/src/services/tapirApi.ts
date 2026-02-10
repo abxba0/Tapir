@@ -1,8 +1,16 @@
 /**
  * Tapir API Client
- * 
- * Communication layer with the Tapir backend REST API
+ *
+ * Communication layer with the Tapir backend REST API.
+ * Uses the Error Reporting Layer for structured error handling.
  */
+
+import {
+  reportApiError,
+  reportBackendError,
+  logError,
+  type ErrorReport,
+} from './errorReporter';
 
 const API_BASE = process.env.NEXT_PUBLIC_TAPIR_API_URL || 'http://localhost:8384';
 
@@ -109,6 +117,23 @@ export interface HealthCheckResponse {
 }
 
 // ============================================================================
+// Internal: structured error from API response
+// ============================================================================
+
+async function handleApiError(response: Response, endpoint: string, fallback: string): Promise<never> {
+  let message = fallback;
+  try {
+    const body = await response.json();
+    message = body.error || fallback;
+  } catch {
+    // Response body was not JSON
+  }
+  const report = reportBackendError(response.status, message, endpoint);
+  logError(report);
+  throw Object.assign(new Error(message), { errorReport: report });
+}
+
+// ============================================================================
 // API Functions
 // ============================================================================
 
@@ -123,8 +148,7 @@ export async function downloadMedia(options: DownloadOptions): Promise<JobRespon
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Download request failed');
+    await handleApiError(response, '/api/download', 'Download request failed');
   }
 
   return response.json();
@@ -141,8 +165,7 @@ export async function transcribeMedia(options: TranscribeOptions): Promise<JobRe
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Transcription request failed');
+    await handleApiError(response, '/api/transcribe', 'Transcription request failed');
   }
 
   return response.json();
@@ -159,8 +182,7 @@ export async function textToSpeech(options: TtsOptions): Promise<JobResponse> {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'TTS request failed');
+    await handleApiError(response, '/api/tts', 'TTS request failed');
   }
 
   return response.json();
@@ -173,8 +195,7 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
   const response = await fetch(`${API_BASE}/api/jobs/${jobId}`);
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to get job status');
+    await handleApiError(response, `/api/jobs/${jobId}`, 'Failed to get job status');
   }
 
   return response.json();
@@ -195,8 +216,7 @@ export async function listJobs(filters?: {
   const response = await fetch(url);
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to list jobs');
+    await handleApiError(response, '/api/jobs', 'Failed to list jobs');
   }
 
   return response.json();
@@ -211,8 +231,7 @@ export async function deleteJob(jobId: string): Promise<{ deleted: boolean }> {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete job');
+    await handleApiError(response, `/api/jobs/${jobId}`, 'Failed to delete job');
   }
 
   return response.json();
@@ -229,8 +248,7 @@ export async function searchYouTube(query: string, maxResults: number = 10): Pro
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Search failed');
+    await handleApiError(response, '/api/search', 'Search failed');
   }
 
   return response.json();
@@ -247,8 +265,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to get video info');
+    await handleApiError(response, '/api/info', 'Failed to get video info');
   }
 
   return response.json();
@@ -261,7 +278,7 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
   const response = await fetch(`${API_BASE}/api/health`);
 
   if (!response.ok) {
-    throw new Error('API health check failed');
+    await handleApiError(response, '/api/health', 'API health check failed');
   }
 
   return response.json();
