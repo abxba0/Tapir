@@ -126,11 +126,6 @@ function generateJobId(): string {
 function cleanOldJobs(): void {
   const MAX_AGE = 24 * 60 * 60 * 1000 // 24 hours
   const now = Date.now()
-  for (const [id, job] of jobs) {
-    if (job.completedAt && now - job.completedAt > MAX_AGE) {
-      jobs.delete(id)
-    }
-  }
   let deletedAny = false
   for (const [id, job] of jobs) {
     if (job.completedAt && now - job.completedAt > MAX_AGE) {
@@ -405,6 +400,8 @@ function errorResponse(message: string, status: number = 400, endpoint: string =
   const mode = detectMode()
   const output = formatErrorOutput(report, mode)
   return jsonResponse(output, status)
+}
+
 // Cache for frequently accessed data
 let healthCache: { data: any; timestamp: number } | null = null
 const HEALTH_CACHE_TTL = 1000 // 1 second
@@ -564,12 +561,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
       return errorResponse("Output directory not allowed", 400, "/api/download")
     }
     if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/download")
-    if (!videoUrl) return errorResponse("Missing 'url' field")
-    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
-    if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
-      return errorResponse("Output directory not allowed")
-    }
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -606,13 +597,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     }
     if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path", 400, "/api/convert")
     if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/convert")
-      return errorResponse("Missing 'inputFile' or 'outputFormat' field")
-    }
-    if (!VALID_AUDIO_FORMATS.has(outputFormat.toLowerCase())) {
-      return errorResponse("Unsupported output format")
-    }
-    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -653,19 +637,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
       return errorResponse("Output directory not allowed", 400, "/api/tts")
     }
     if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/tts")
-      return errorResponse("Missing 'inputFile' field")
-    }
-    if (body.engine && !VALID_TTS_ENGINES.has(body.engine as string)) {
-      return errorResponse("Unsupported TTS engine")
-    }
-    if (body.outputFormat && !VALID_TTS_FORMATS.has((body.outputFormat as string).toLowerCase())) {
-      return errorResponse("Unsupported TTS output format")
-    }
-    if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
-      return errorResponse("Output directory not allowed")
-    }
-    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -708,20 +679,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
       return errorResponse("Output directory not allowed", 400, "/api/transcribe")
     }
     if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/transcribe")
-      return errorResponse("Missing 'url' or 'filePath' field")
-    }
-    if (url && !isSafeUrl(url)) return errorResponse("URL scheme not allowed")
-    if (filePath && !validateFilePath(filePath)) return errorResponse("Invalid or inaccessible file path")
-    if (body.modelSize && !VALID_WHISPER_MODELS.has(body.modelSize as string)) {
-      return errorResponse("Unsupported Whisper model")
-    }
-    if (body.outputFormat && !VALID_TRANSCRIPTION_FORMATS.has((body.outputFormat as string).toLowerCase())) {
-      return errorResponse("Unsupported transcription output format")
-    }
-    if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
-      return errorResponse("Output directory not allowed")
-    }
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
