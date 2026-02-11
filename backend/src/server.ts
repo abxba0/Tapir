@@ -805,9 +805,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     if (!file) return errorResponse("Missing 'file' field", 400, "/api/metadata/embed")
     if (!validateFilePath(file)) return errorResponse("Invalid or inaccessible file path", 400, "/api/metadata/embed")
     if (thumbnailUrl && !isSafeFetchUrl(thumbnailUrl)) return errorResponse("Thumbnail URL not allowed", 400, "/api/metadata/embed")
-    if (!file) return errorResponse("Missing 'file' field")
-    if (!validateFilePath(file)) return errorResponse("Invalid or inaccessible file path")
-    if (thumbnailUrl && !isSafeFetchUrl(thumbnailUrl)) return errorResponse("Thumbnail URL not allowed")
 
     const result = await embedMetadata(file, {
       title,
