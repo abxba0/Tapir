@@ -70,7 +70,6 @@ let shuttingDown = false
 
 const rateLimitMap = new Map<string, number[]>()
 
-function checkRateLimit(ip: string): boolean {
 // Whitelist of IPs that bypass rate limiting (localhost/testing)
 const RATE_LIMIT_WHITELIST = new Set([
   "127.0.0.1",
@@ -478,13 +477,11 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
   // Shutdown guard
   if (shuttingDown) {
     return errorResponse("Server is shutting down", 503, path)
-    return jsonResponse({ error: "Server is shutting down" }, 503)
   }
 
   // Auth check
   if (!checkAuth(req)) {
     return errorResponse("Unauthorized", 401, path)
-    return errorResponse("Unauthorized", 401)
   }
 
   // Rate limiting
@@ -496,7 +493,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     ])
     const output = formatErrorOutput(report)
     return new Response(JSON.stringify(output, null, 2), {
-    return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
       status: 429,
       headers: {
         "Content-Type": "application/json",
@@ -520,13 +516,11 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
       counts[job.status]++
     }
 
-    return jsonResponse({
     const healthData = {
       status: "ok",
       version: VERSION,
       uptime: process.uptime(),
       jobs: { total: jobs.size, ...counts },
-    })
     }
     
     healthCache = { data: healthData, timestamp: now }
@@ -540,7 +534,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const maxResults = Math.min((body.maxResults as number) || 10, 25)
 
     if (!query) return errorResponse("Missing 'query' field", 400, "/api/search")
-    if (!query) return errorResponse("Missing 'query' field")
 
     const results = await searchYouTube(query, maxResults)
     return jsonResponse({ results, count: results.length })
@@ -556,11 +549,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
 
     const info = await getVideoInfo(videoUrl)
     if (!info) return errorResponse("Failed to fetch video info", 404, "/api/info")
-    if (!videoUrl) return errorResponse("Missing 'url' field")
-    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
-
-    const info = await getVideoInfo(videoUrl)
-    if (!info) return errorResponse("Failed to fetch video info", 404)
 
     return jsonResponse({ info })
   }
@@ -769,8 +757,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     // Sort newest first
     jobList.sort((a, b) => b.createdAt - a.createdAt)
 
-    return jsonResponse({ jobs: jobList, count: jobList.length })
-    return jsonResponse({ jobs: jobList, count: jobList.length }, 200, "no-cache, max-age=0")
+    return jsonResponse({ jobs: jobList, count: jobList.length }, 200, "no-cache, no-store")
   }
 
   // Download file from completed job
@@ -828,7 +815,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const jobId = jobMatch[1]
     const job = jobs.get(jobId)
     if (!job) return errorResponse("Job not found", 404, `/api/jobs/${jobId}`)
-    if (!job) return errorResponse("Job not found", 404)
     return jsonResponse(job)
   }
 
@@ -839,11 +825,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     if (!job) return errorResponse("Job not found", 404, `/api/jobs/${jobId}`)
     if (job.status === "running") {
       return errorResponse("Cannot delete a running job", 409, `/api/jobs/${jobId}`)
-    }
-    jobs.delete(jobId)
-    if (!job) return errorResponse("Job not found", 404)
-    if (job.status === "running") {
-      return errorResponse("Cannot delete a running job", 409)
     }
     jobs.delete(jobId)
     invalidateJobsCache()
@@ -883,7 +864,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
   }
 
   return errorResponse("Not found", 404, path)
-  return errorResponse("Not found", 404)
 }
 
 // ============================================================================
