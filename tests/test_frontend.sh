@@ -202,7 +202,7 @@ section "3. TypeScript Configuration"
 TSCONFIG="$WEBSITE_DIR/tsconfig.json"
 
 assert_file_contains "TSConfig has strict mode" "$TSCONFIG" '"strict"'
-assert_file_contains "TSConfig has path alias @/*" "$TSCONFIG" '"@/*"'
+assert_file_contains "TSConfig has path alias @/*" "$TSCONFIG" '@/\*'
 assert_file_contains "TSConfig has Next.js plugin" "$TSCONFIG" '"next"'
 assert_file_contains "TSConfig has JSX preserve" "$TSCONFIG" '"preserve"'
 
@@ -449,9 +449,9 @@ fi
 # Check node_modules exists
 assert_dir_exists "node_modules created" "$WEBSITE_DIR/node_modules"
 
-# Verify key packages
+# Verify key packages (check both website and root node_modules for monorepo)
 TOTAL=$((TOTAL + 1))
-if [ -d "$WEBSITE_DIR/node_modules/next" ]; then
+if [ -d "$WEBSITE_DIR/node_modules/next" ] || [ -d "$PROJECT_ROOT/node_modules/next" ]; then
   PASS=$((PASS + 1))
   echo -e "  ${GREEN}PASS${NC} next package installed"
 else
@@ -461,7 +461,7 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-if [ -d "$WEBSITE_DIR/node_modules/react" ]; then
+if [ -d "$WEBSITE_DIR/node_modules/react" ] || [ -d "$PROJECT_ROOT/node_modules/react" ]; then
   PASS=$((PASS + 1))
   echo -e "  ${GREEN}PASS${NC} react package installed"
 else
@@ -471,7 +471,7 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-if [ -d "$WEBSITE_DIR/node_modules/@mui/material" ]; then
+if [ -d "$WEBSITE_DIR/node_modules/@mui/material" ] || [ -d "$PROJECT_ROOT/node_modules/@mui/material" ]; then
   PASS=$((PASS + 1))
   echo -e "  ${GREEN}PASS${NC} @mui/material package installed"
 else
