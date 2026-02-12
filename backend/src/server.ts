@@ -43,7 +43,6 @@ const jobs = new Map<string, QueuedJob>()
 let jobCounter = 0
 const MAX_JOBS = 1000
 
-=======
 // Pre-computed job lists cache
 let jobsListCache: { data: any; timestamp: number } | null = null
 const JOBS_LIST_CACHE_TTL = 500 // 0.5 seconds
@@ -52,7 +51,6 @@ function invalidateJobsCache() {
   jobsListCache = null
 }
 
->>>>>>> d087be4c2056317470a52cdb03491517f24104de
 // ============================================================================
 // Enterprise Configuration (via environment variables)
 // ============================================================================
@@ -381,18 +379,27 @@ async function processTranscribeJob(job: QueuedJob): Promise<void> {
 // Route helpers
 // ============================================================================
 
-function jsonResponse(data: unknown, status: number = 200): Response {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": CORS_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-    },
-  })
+// Cache for frequently accessed data
+let healthCache: { data: any; timestamp: number } | null = null
+const HEALTH_CACHE_TTL = 1000 // 1 second
+
+function jsonResponse(data: unknown, status: number = 200, cacheControl?: string): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Connection": "keep-alive",
+    "Keep-Alive": "timeout=5",
+  }
+  
+  if (cacheControl) {
+    headers["Cache-Control"] = cacheControl
+  }
+  
+  return new Response(JSON.stringify(data), { status, headers })
 }
 
 function errorResponse(message: string, status: number = 400, endpoint: string = ""): Response {
@@ -626,7 +633,6 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     if (!inputFile) {
       return errorResponse("Missing 'inputFile' field", 400, "/api/tts")
     }
-    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path", 400, "/api/tts")
     if (body.engine && !VALID_TTS_ENGINES.has(body.engine as string)) {
       return errorResponse("Unsupported TTS engine", 400, "/api/tts")
     }
@@ -636,7 +642,8 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
       return errorResponse("Output directory not allowed", 400, "/api/tts")
     }
-    if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/tts")
+    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
+    if (!canCreateJob()) return errorResponse("Job queue full", 429)
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -714,7 +721,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     // Sort newest first
     jobList.sort((a, b) => b.createdAt - a.createdAt)
 
-    return jsonResponse({ jobs: jobList, count: jobList.length }, 200, "no-cache, no-store")
+    return jsonResponse({ jobs: jobList, count: jobList.length }, 200, "no-cache, max-age=0")
   }
 
   // Download file from completed job

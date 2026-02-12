@@ -25,8 +25,6 @@ const features = [
   "Subtitle extraction (SRT, VTT, TXT formats)",
   "Metadata embedding (title, artist, thumbnail)",
   "Plugin system for post-processing hooks",
-  "REST API server for external tool integration",
-  "MCP server for AI agent integration",
   "Quality selection with size estimation",
   "Cookie support for restricted content",
   "Cross-platform: Linux, macOS, Windows (WSL)",

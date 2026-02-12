@@ -33,8 +33,9 @@ import {
   IconCheck,
   IconX,
   IconClock,
+  IconFileDownload,
 } from "@tabler/icons-react";
-import { textToSpeech, listJobs, deleteJob, type JobStatus } from "@/services/tapirApi";
+import { textToSpeech, listJobs, deleteJob, getFileDownloadUrl, type JobStatus } from "@/services/tapirApi";
 
 const TextToSpeechPage = () => {
   const [inputFile, setInputFile] = useState("");
@@ -49,10 +50,10 @@ const TextToSpeechPage = () => {
   const [jobs, setJobs] = useState<JobStatus[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Poll for job updates
+  // Poll for job updates - increased interval to reduce load
   useEffect(() => {
     loadJobs();
-    const interval = setInterval(loadJobs, 3000);
+    const interval = setInterval(loadJobs, 5000); // Changed from 3s to 5s
     return () => clearInterval(interval);
   }, []);
 
@@ -275,11 +276,25 @@ const TextToSpeechPage = () => {
                             color={getStatusColor(job.status) as any}
                             icon={getStatusIcon(job.status) as any}
                           />
-                          {job.status !== "running" && (
-                            <IconButton size="small" onClick={() => handleDelete(job.id)}>
-                              <IconTrash size={16} />
-                            </IconButton>
-                          )}
+                          <Stack direction="row" spacing={0.5}>
+                            {job.status === "completed" && (job.result as any)?.outputFile && (
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                component="a"
+                                href={getFileDownloadUrl(job.id)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <IconFileDownload size={16} />
+                              </IconButton>
+                            )}
+                            {job.status !== "running" && (
+                              <IconButton size="small" onClick={() => handleDelete(job.id)}>
+                                <IconTrash size={16} />
+                              </IconButton>
+                            )}
+                          </Stack>
                         </Stack>
                         <Typography variant="body2" sx={{ fontSize: "0.8rem", mb: 0.5 }}>
                           {(job.request as any).inputFile?.slice(0, 50)}...
@@ -350,11 +365,25 @@ const TextToSpeechPage = () => {
                           <TableCell>{(job.request as any).outputFormat || "mp3"}</TableCell>
                           <TableCell>{new Date(job.createdAt).toLocaleString()}</TableCell>
                           <TableCell>
-                            {job.status !== "running" && (
-                              <IconButton size="small" onClick={() => handleDelete(job.id)}>
-                                <IconTrash size={16} />
-                              </IconButton>
-                            )}
+                            <Stack direction="row" spacing={0.5}>
+                              {job.status === "completed" && (job.result as any)?.outputFile && (
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  component="a"
+                                  href={getFileDownloadUrl(job.id)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <IconFileDownload size={16} />
+                                </IconButton>
+                              )}
+                              {job.status !== "running" && (
+                                <IconButton size="small" onClick={() => handleDelete(job.id)}>
+                                  <IconTrash size={16} />
+                                </IconButton>
+                              )}
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       ))

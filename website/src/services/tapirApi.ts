@@ -5,14 +5,20 @@
  * Uses the Error Reporting Layer for structured error handling.
  */
 
-import {
-  reportApiError,
-  reportBackendError,
-  logError,
-  type ErrorReport,
-} from './errorReporter';
+// Determine API base URL - works in both local dev and Codespace environments
+let API_BASE = process.env.NEXT_PUBLIC_TAPIR_API_URL;
 
-const API_BASE = process.env.NEXT_PUBLIC_TAPIR_API_URL || 'http://localhost:8384';
+if (!API_BASE) {
+  if (typeof window !== 'undefined') {
+    // Browser context - try to connect to backend on same host/origin, different port
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    API_BASE = `${protocol}//${hostname}:8384`;
+  } else {
+    // Server-side context (fallback)
+    API_BASE = 'http://localhost:8384';
+  }
+}
 
 // ============================================================================
 // Types
@@ -137,6 +143,36 @@ async function handleApiError(response: Response, endpoint: string, fallback: st
 // API Functions
 // ============================================================================
 
+// Simple cache for GET requests
+const apiCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 2000; // 2 seconds
+
+/**
+ * Cached fetch wrapper for GET requests
+ */
+async function cachedFetch(url: string, ttl: number = CACHE_TTL): Promise<any> {
+  const now = Date.now();
+  const cached = apiCache.get(url);
+  
+  if (cached && (now - cached.timestamp < ttl)) {
+    return cached.data;
+  }
+  
+  const response = await fetch(url, {
+    keepalive: true,
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Request failed');
+  }
+  
+  const data = await response.json();
+  apiCache.set(url, { data, timestamp: now });
+  
+  return data;
+}
+
 /**
  * Download media from a URL
  */
@@ -145,6 +181,7 @@ export async function downloadMedia(options: DownloadOptions): Promise<JobRespon
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
+    keepalive: true,
   });
 
   if (!response.ok) {
@@ -162,6 +199,7 @@ export async function transcribeMedia(options: TranscribeOptions): Promise<JobRe
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
+    keepalive: true,
   });
 
   if (!response.ok) {
@@ -179,6 +217,7 @@ export async function textToSpeech(options: TtsOptions): Promise<JobResponse> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
+    keepalive: true,
   });
 
   if (!response.ok) {
@@ -192,13 +231,7 @@ export async function textToSpeech(options: TtsOptions): Promise<JobResponse> {
  * Get status of a specific job
  */
 export async function getJobStatus(jobId: string): Promise<JobStatus> {
-  const response = await fetch(`${API_BASE}/api/jobs/${jobId}`);
-
-  if (!response.ok) {
-    await handleApiError(response, `/api/jobs/${jobId}`, 'Failed to get job status');
-  }
-
-  return response.json();
+  return cachedFetch(`${API_BASE}/api/jobs/${jobId}`, 500);
 }
 
 /**
@@ -213,21 +246,19 @@ export async function listJobs(filters?: {
   if (filters?.type) params.append('type', filters.type);
 
   const url = `${API_BASE}/api/jobs${params.toString() ? `?${params.toString()}` : ''}`;
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    await handleApiError(response, '/api/jobs', 'Failed to list jobs');
-  }
-
-  return response.json();
+  return cachedFetch(url, 1000);
 }
 
 /**
  * Delete a job
  */
 export async function deleteJob(jobId: string): Promise<{ deleted: boolean }> {
+  // Clear cache for this job
+  apiCache.delete(`${API_BASE}/api/jobs/${jobId}`);
+  
   const response = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
     method: 'DELETE',
+    keepalive: true,
   });
 
   if (!response.ok) {
@@ -245,6 +276,7 @@ export async function searchYouTube(query: string, maxResults: number = 10): Pro
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, maxResults }),
+    keepalive: true,
   });
 
   if (!response.ok) {
@@ -262,6 +294,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
+    keepalive: true,
   });
 
   if (!response.ok) {
@@ -272,14 +305,15 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
 }
 
 /**
+ * Get the URL to download a completed job's file
+ */
+export function getFileDownloadUrl(jobId: string): string {
+  return `${API_BASE}/api/jobs/${jobId}/download`;
+}
+
+/**
  * Check API health
  */
 export async function checkHealth(): Promise<HealthCheckResponse> {
-  const response = await fetch(`${API_BASE}/api/health`);
-
-  if (!response.ok) {
-    await handleApiError(response, '/api/health', 'API health check failed');
-  }
-
-  return response.json();
+  return cachedFetch(`${API_BASE}/api/health`, 2000);
 }
