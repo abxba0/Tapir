@@ -15,6 +15,13 @@
 import { basename, extname } from "path"
 import { validateFilePath, isSafeUrl, isSafeFetchUrl, validateOutputDir } from "../../shared/validation/index"
 import type { DownloadProgress, DownloadResult, VideoInfo, QueuedJob } from "../../shared/types/index"
+import {
+  reportBackendError,
+  reportSilentFailure,
+  formatErrorOutput,
+  detectMode,
+  type ErrorReport,
+} from "../../shared/errors/index"
 import { VERSION } from "../../tui/src/utils"
 import {
   getVideoInfo,
@@ -395,6 +402,36 @@ function jsonResponse(data: unknown, status: number = 200, cacheControl?: string
   return new Response(JSON.stringify(data), { status, headers })
 }
 
+function errorResponse(message: string, status: number = 400, endpoint: string = ""): Response {
+  const report = reportBackendError(status, message, endpoint)
+  const mode = detectMode()
+  const output = formatErrorOutput(report, mode)
+  return jsonResponse(output, status)
+}
+
+// Cache for frequently accessed data
+let healthCache: { data: any; timestamp: number } | null = null
+const HEALTH_CACHE_TTL = 1000 // 1 second
+
+function jsonResponse(data: unknown, status: number = 200, cacheControl?: string): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Connection": "keep-alive",
+    "Keep-Alive": "timeout=5",
+  }
+  
+  if (cacheControl) {
+    headers["Cache-Control"] = cacheControl
+  }
+  
+  return new Response(JSON.stringify(data), { status, headers })
+}
+
 function errorResponse(message: string, status: number = 400): Response {
   return jsonResponse({ error: message }, status)
 }
@@ -443,17 +480,23 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
 
   // Shutdown guard
   if (shuttingDown) {
-    return jsonResponse({ error: "Server is shutting down" }, 503)
+    return errorResponse("Server is shutting down", 503, path)
   }
 
   // Auth check
   if (!checkAuth(req)) {
-    return errorResponse("Unauthorized", 401)
+    return errorResponse("Unauthorized", 401, path)
   }
 
   // Rate limiting
   if (!checkRateLimit(ip)) {
-    return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+    const report = reportBackendError(429, "Rate limit exceeded", path, [
+      "Too many requests from this IP address",
+      `Limit: ${RATE_LIMIT} requests per minute`,
+      "Wait and retry after the window resets",
+    ])
+    const output = formatErrorOutput(report)
+    return new Response(JSON.stringify(output, null, 2), {
       status: 429,
       headers: {
         "Content-Type": "application/json",
@@ -494,7 +537,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const query = body.query as string
     const maxResults = Math.min((body.maxResults as number) || 10, 25)
 
-    if (!query) return errorResponse("Missing 'query' field")
+    if (!query) return errorResponse("Missing 'query' field", 400, "/api/search")
 
     const results = await searchYouTube(query, maxResults)
     return jsonResponse({ results, count: results.length })
@@ -505,11 +548,11 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const body = await parseBody(req)
     const videoUrl = body.url as string
 
-    if (!videoUrl) return errorResponse("Missing 'url' field")
-    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
+    if (!videoUrl) return errorResponse("Missing 'url' field", 400, "/api/info")
+    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed", 400, "/api/info")
 
     const info = await getVideoInfo(videoUrl)
-    if (!info) return errorResponse("Failed to fetch video info", 404)
+    if (!info) return errorResponse("Failed to fetch video info", 404, "/api/info")
 
     return jsonResponse({ info })
   }
@@ -519,12 +562,12 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const body = await parseBody(req)
     const videoUrl = body.url as string
 
-    if (!videoUrl) return errorResponse("Missing 'url' field")
-    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed")
+    if (!videoUrl) return errorResponse("Missing 'url' field", 400, "/api/download")
+    if (!isSafeUrl(videoUrl)) return errorResponse("URL scheme not allowed", 400, "/api/download")
     if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
-      return errorResponse("Output directory not allowed")
+      return errorResponse("Output directory not allowed", 400, "/api/download")
     }
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
+    if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/download")
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -554,13 +597,13 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const outputFormat = body.outputFormat as string
 
     if (!inputFile || !outputFormat) {
-      return errorResponse("Missing 'inputFile' or 'outputFormat' field")
+      return errorResponse("Missing 'inputFile' or 'outputFormat' field", 400, "/api/convert")
     }
     if (!VALID_AUDIO_FORMATS.has(outputFormat.toLowerCase())) {
-      return errorResponse("Unsupported output format")
+      return errorResponse("Unsupported output format", 400, "/api/convert")
     }
-    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
+    if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path", 400, "/api/convert")
+    if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/convert")
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -588,16 +631,16 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const inputFile = body.inputFile as string
 
     if (!inputFile) {
-      return errorResponse("Missing 'inputFile' field")
+      return errorResponse("Missing 'inputFile' field", 400, "/api/tts")
     }
     if (body.engine && !VALID_TTS_ENGINES.has(body.engine as string)) {
-      return errorResponse("Unsupported TTS engine")
+      return errorResponse("Unsupported TTS engine", 400, "/api/tts")
     }
     if (body.outputFormat && !VALID_TTS_FORMATS.has((body.outputFormat as string).toLowerCase())) {
-      return errorResponse("Unsupported TTS output format")
+      return errorResponse("Unsupported TTS output format", 400, "/api/tts")
     }
     if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
-      return errorResponse("Output directory not allowed")
+      return errorResponse("Output directory not allowed", 400, "/api/tts")
     }
     if (!validateFilePath(inputFile)) return errorResponse("Invalid or inaccessible file path")
     if (!canCreateJob()) return errorResponse("Job queue full", 429)
@@ -629,20 +672,20 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const filePath = body.filePath as string
 
     if (!url && !filePath) {
-      return errorResponse("Missing 'url' or 'filePath' field")
+      return errorResponse("Missing 'url' or 'filePath' field", 400, "/api/transcribe")
     }
-    if (url && !isSafeUrl(url)) return errorResponse("URL scheme not allowed")
-    if (filePath && !validateFilePath(filePath)) return errorResponse("Invalid or inaccessible file path")
+    if (url && !isSafeUrl(url)) return errorResponse("URL scheme not allowed", 400, "/api/transcribe")
+    if (filePath && !validateFilePath(filePath)) return errorResponse("Invalid or inaccessible file path", 400, "/api/transcribe")
     if (body.modelSize && !VALID_WHISPER_MODELS.has(body.modelSize as string)) {
-      return errorResponse("Unsupported Whisper model")
+      return errorResponse("Unsupported Whisper model", 400, "/api/transcribe")
     }
     if (body.outputFormat && !VALID_TRANSCRIPTION_FORMATS.has((body.outputFormat as string).toLowerCase())) {
-      return errorResponse("Unsupported transcription output format")
+      return errorResponse("Unsupported transcription output format", 400, "/api/transcribe")
     }
     if (body.outputDir && !validateOutputDir(body.outputDir as string)) {
-      return errorResponse("Output directory not allowed")
+      return errorResponse("Output directory not allowed", 400, "/api/transcribe")
     }
-    if (!canCreateJob()) return errorResponse("Job queue full", 429)
+    if (!canCreateJob()) return errorResponse("Job queue full", 429, "/api/transcribe")
 
     const job: QueuedJob = {
       id: generateJobId(),
@@ -735,7 +778,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
   if (jobMatch && method === "GET") {
     const jobId = jobMatch[1]
     const job = jobs.get(jobId)
-    if (!job) return errorResponse("Job not found", 404)
+    if (!job) return errorResponse("Job not found", 404, `/api/jobs/${jobId}`)
     return jsonResponse(job)
   }
 
@@ -743,9 +786,9 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
   if (jobMatch && method === "DELETE") {
     const jobId = jobMatch[1]
     const job = jobs.get(jobId)
-    if (!job) return errorResponse("Job not found", 404)
+    if (!job) return errorResponse("Job not found", 404, `/api/jobs/${jobId}`)
     if (job.status === "running") {
-      return errorResponse("Cannot delete a running job", 409)
+      return errorResponse("Cannot delete a running job", 409, `/api/jobs/${jobId}`)
     }
     jobs.delete(jobId)
     invalidateJobsCache()
@@ -766,9 +809,9 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     const artist = body.artist as string | undefined
     const thumbnailUrl = body.thumbnailUrl as string | undefined
 
-    if (!file) return errorResponse("Missing 'file' field")
-    if (!validateFilePath(file)) return errorResponse("Invalid or inaccessible file path")
-    if (thumbnailUrl && !isSafeFetchUrl(thumbnailUrl)) return errorResponse("Thumbnail URL not allowed")
+    if (!file) return errorResponse("Missing 'file' field", 400, "/api/metadata/embed")
+    if (!validateFilePath(file)) return errorResponse("Invalid or inaccessible file path", 400, "/api/metadata/embed")
+    if (thumbnailUrl && !isSafeFetchUrl(thumbnailUrl)) return errorResponse("Thumbnail URL not allowed", 400, "/api/metadata/embed")
 
     const result = await embedMetadata(file, {
       title,
@@ -781,7 +824,7 @@ async function handleRequest(req: Request, server: any): Promise<Response> {
     return jsonResponse(result)
   }
 
-  return errorResponse("Not found", 404)
+  return errorResponse("Not found", 404, path)
 }
 
 // ============================================================================
