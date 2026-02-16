@@ -409,33 +409,6 @@ function errorResponse(message: string, status: number = 400, endpoint: string =
   return jsonResponse(output, status)
 }
 
-// Cache for frequently accessed data
-let healthCache: { data: any; timestamp: number } | null = null
-const HEALTH_CACHE_TTL = 1000 // 1 second
-
-function jsonResponse(data: unknown, status: number = 200, cacheControl?: string): Response {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": CORS_ORIGIN,
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Connection": "keep-alive",
-    "Keep-Alive": "timeout=5",
-  }
-  
-  if (cacheControl) {
-    headers["Cache-Control"] = cacheControl
-  }
-  
-  return new Response(JSON.stringify(data), { status, headers })
-}
-
-function errorResponse(message: string, status: number = 400): Response {
-  return jsonResponse({ error: message }, status)
-}
-
 const MAX_BODY_BYTES = 1_048_576 // 1 MB
 
 async function parseBody(req: Request): Promise<Record<string, unknown>> {

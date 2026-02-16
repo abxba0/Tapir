@@ -67,3 +67,6 @@ frontend/out/
 website/node_modules/
 website/.next/
 website/out/
+
+# TypeScript build info
+*.tsbuildinfo

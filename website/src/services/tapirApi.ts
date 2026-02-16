@@ -5,6 +5,8 @@
  * Uses the Error Reporting Layer for structured error handling.
  */
 
+import { reportBackendError, logError } from './errorReporter';
+
 // Determine API base URL - works in both local dev and Codespace environments
 let API_BASE = process.env.NEXT_PUBLIC_TAPIR_API_URL;
 
